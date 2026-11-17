@@ -250,6 +250,8 @@ class PureSchemaStateTracker:
         "session_id",
         "order_id",
         "bill_id",
+        "item_id",
+        "dish_id",
     )
 
     def __init__(
@@ -279,6 +281,7 @@ class PureSchemaStateTracker:
 
         # 3. Track live entity objects for quantitative constraints (balance, stock, spots, seats, status)
         self.observed_entities: dict[str, dict[str, Any]] = {}
+        self.observed_tools: set[str] = set()
         self.device_types: dict[str, str] = {}
         self.balances: dict[str, int | float] = {}
         self.cart_has_items: dict[str, bool] = {}
@@ -348,6 +351,8 @@ class PureSchemaStateTracker:
         if not isinstance(result, dict):
             return
 
+        if tool_name:
+            self.observed_tools.add(tool_name)
         app_name = tool_name.split(".", 1)[0]
 
         # Dynamically harvest entity IDs and object properties from list / dict fields
@@ -419,17 +424,33 @@ class PureSchemaStateTracker:
                         f"Hãy gọi '{read_tool}' trước để lấy đúng ID thực tế từ hệ thống."
                     )
 
-        # 2. Check nested items in order placement tools (e.g. food delivery / retail)
+        # 2. Check nested items & menu prerequisite dependencies in order placement tools
+        app_name = tool_name.split(".", 1)[0]
+        menu_read_tools = [
+            tn
+            for tn, ts in self.catalog_tools_map.items()
+            if tn.startswith(f"{app_name}.") and ts.get("kind") == "read" and "menu" in tn
+        ]
         for val in tool_args.values():
             if isinstance(val, list):
+                has_item_dicts = any(isinstance(it, dict) for it in val)
+                if kind == "write" and has_item_dicts and menu_read_tools:
+                    if not any(mt in self.observed_tools for mt in menu_read_tools):
+                        return (
+                            f"Cần tra cứu thực đơn qua '{menu_read_tools[0]}' trước khi đặt món bằng '{tool_name}' "
+                            f"để đảm bảo đúng mã món hợp lệ."
+                        )
                 for item in val:
-                    if isinstance(item, dict) and item.get("item_id"):
-                        sub_id = str(item["item_id"])
-                        if sub_id not in self.all_known_ids and sub_id not in self.user_explicit_id_tokens:
-                            return (
-                                f"Mã sản phẩm/món '{sub_id}' chưa được tra cứu từ thực đơn/danh mục. "
-                                f"Hãy gọi tool tra cứu thực đơn trước để lấy đúng item_id."
-                            )
+                    if isinstance(item, dict):
+                        sub_id_val = item.get("item_id") or item.get("dish_id") or item.get("product_id")
+                        if sub_id_val:
+                            sub_id = str(sub_id_val)
+                            if sub_id not in self.all_known_ids and sub_id not in self.user_explicit_id_tokens:
+                                read_hint = menu_read_tools[0] if menu_read_tools else self._resolve_read_tool(tool_name, None, "item_id")
+                                return (
+                                    f"Mã sản phẩm/món '{sub_id}' chưa được tra cứu từ thực đơn/danh mục. "
+                                    f"Hãy gọi '{read_hint}' trước để lấy đúng item_id."
+                                )
 
         # 3. Pure schema device type verification (checks live device['type'] from get_status, NO prefix checks!)
         if "device_id" in tool_args:
@@ -463,11 +484,31 @@ class PureSchemaStateTracker:
                 if isinstance(obj.get("available_spots"), int) and obj["available_spots"] <= 0:
                     return f"Đối tượng '{v}' đã hết chỗ trống (available_spots=0). Hãy chọn địa điểm khác còn chỗ."
 
-                # Status check (e.g. ended parking sessions or already-delivered orders)
-                if obj.get("status") == "ended" and "end" in tool_name:
+                # Status eligibility gates (ended sessions, delivered cancels, ineligible returns/re-actions)
+                raw_status = obj.get("status")
+                status_l = raw_status.strip().lower() if isinstance(raw_status, str) else ""
+                if status_l == "ended" and "end" in tool_name:
                     return f"Phiên '{v}' đã kết thúc trước đó rồi, không gọi lại lệnh này."
-                if obj.get("status") == "delivered" and "cancel" in tool_name:
+                if status_l == "delivered" and "cancel" in tool_name:
                     return f"Đơn hàng '{v}' đã giao (delivered), không thể hủy trực tiếp."
+                if "return" in tool_name and status_l in (
+                    "cancelled",
+                    "canceled",
+                    "returned",
+                    "refunded",
+                    "shipping",
+                    "in_transit",
+                    "pending",
+                    "processing",
+                    "preparing",
+                ):
+                    return (
+                        f"Đơn hàng '{v}' đang ở trạng thái '{raw_status}', không đủ điều kiện yêu cầu trả hàng."
+                    )
+                if status_l in ("cancelled", "canceled") and any(
+                    w in tool_name for w in ("cancel", "return", "pay", "confirm")
+                ):
+                    return f"Đối tượng '{v}' đã bị hủy ({raw_status}), không thể tiếp tục thao tác '{tool_name}'."
 
                 # Seats left in transportation trips
                 seats_req = tool_args.get("seats")

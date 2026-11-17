@@ -117,3 +117,66 @@ def _parse_compound_words(tokens: list[str]) -> int | None:
             return prefix_val * scale + rem_val
 
     return _parse_under_thousand(tokens)
+
+
+_SPOKEN_NUM_TOKENS = set(VI_DIGITS.keys()) | {
+    "trăm",
+    "linh",
+    "lẻ",
+    "mười",
+    "mươi",
+    "tỷ",
+    "triệu",
+    "nghìn",
+    "ngàn",
+}
+
+
+def extract_vietnamese_amount(text: str) -> int | None:
+    """Extract the primary numerical amount or quantity from a full Vietnamese utterance.
+
+    Prioritizes scaled numeric literals (e.g. '1.5 triệu', '250.000') and contiguous
+    spoken compound number spans (e.g. 'hai triệu năm trăm nghìn') while ignoring clock-time
+    literals like '8 giờ' or '8 rưỡi'.
+    """
+    if not text:
+        return None
+    t = text.strip().lower()
+
+    # 1. Explicit scaled numeric amounts first (e.g. 1.5 triệu, 500k, 250.000)
+    for m in re.finditer(r"\b(\d+(?:[.,]\d{3})+|\d+(?:[.,]\d+)?)\s*(nghìn|ngàn|triệu|tỷ|k)?\b", t):
+        after = t[m.end() : m.end() + 12].lstrip()
+        # Skip time/date digits if not carrying a monetary scale suffix
+        if not m.group(2) and re.match(r"^(giờ|h\b|phút|rưỡi|tháng|năm|/|:)", after):
+            continue
+        if m.group(2) or "." in m.group(1) or "," in m.group(1) or len(m.group(1)) >= 4:
+            return parse_vietnamese_number(m.group(0))
+
+    # 2. Extract longest contiguous spoken Vietnamese number-word spans
+    tokens = re.findall(r"[a-zà-ỹ]+", t)
+    spans: list[list[str]] = []
+    cur: list[str] = []
+    for tok in tokens:
+        if tok in _SPOKEN_NUM_TOKENS:
+            cur.append(tok)
+        elif cur:
+            spans.append(cur)
+            cur = []
+    if cur:
+        spans.append(cur)
+
+    best_val: int | None = None
+    for sp in sorted(spans, key=len, reverse=True):
+        val = _parse_compound_words(sp)
+        if val is not None:
+            best_val = val
+            break
+    if best_val is not None:
+        return best_val
+
+    # 3. Fallback to non-time standalone digits
+    for m in re.finditer(r"\b(\d+)\b", t):
+        after = t[m.end() : m.end() + 12].lstrip()
+        if not re.match(r"^(giờ|h\b|phút|rưỡi|tháng|năm|/|:)", after):
+            return int(m.group(1))
+    return None

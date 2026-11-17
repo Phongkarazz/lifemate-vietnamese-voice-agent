@@ -4,8 +4,27 @@
 ![Base LLM](https://img.shields.io/badge/LLM-Qwen3--4B%20LoRA%20(r%3D128)-orange)
 ![Public Score](https://img.shields.io/badge/Public%20Score-49.60-brightgreen)
 ![Deployment](https://img.shields.io/badge/Docker-Offline%20--network%20none-informational)
+![Streamlit MVP](https://img.shields.io/badge/MVP-Streamlit%20Control%20Tower-FF4B4B)
 
-End-to-end offline Vietnamese **Voice-to-Action AI Agent** built for the **Zalo AI Challenge 2026 (LifeMate Track)** and extended independently as a reliability, guardrail, and edge-deployment research showcase.
+End-to-end offline Vietnamese **Voice-to-Action AI Agent** built for the **Zalo AI Challenge 2026 (LifeMate Track)** and extended independently into an interactive **Control Tower MVP** & V8 safety guardrail research showcase.
+
+---
+
+## Interactive MVP & Visual Showcase
+
+Launch locally (`streamlit run app.py`) or deploy the lightweight `deploy-streamlit` branch directly on Streamlit Community Cloud (`app.py`):
+
+| Executive Overview & Benchmarks | Interactive ReAct Sandbox (`Before → After`) |
+|---|---|
+| ![Executive Overview](assets/screenshots/01_overview.png) | ![Interactive Sandbox](assets/screenshots/02_sandbox.png) |
+
+| FinTech Risk & V8 Safety Lab | TF-IDF Semantic Router & Context Budget |
+|---|---|
+| ![FinTech Safety Lab](assets/screenshots/03_risk_lab.png) | ![Semantic Router](assets/screenshots/04_router.png) |
+
+| L4 Training & Chunked-CE VRAM Profile | Spoken Vietnamese NLP & Voice Lab |
+|---|---|
+| ![Training Analytics](assets/screenshots/05_training.png) | ![Vietnamese NLP Lab](assets/screenshots/06_nlp_voice.png) |
 
 > **Data & IP Compliance Note:** Per the Zalo AI Challenge 2026 regulations, all competition datasets (`train/`, `public_test/`, `private_test/`, audio `.wav` files, and SFT JSONL splits) are strictly excluded from this repository. Clean synthetic scenarios are provided in [`examples/offline_agent_demo.py`](examples/offline_agent_demo.py) and [`tests/`](tests/) so core architecture, guardrails, and Docker conformance checks run cleanly out of the box.
 
@@ -40,8 +59,9 @@ flowchart LR
    - Implemented **`ChunkedLossTrainer`** computing `lm_head` + cross-entropy in 256-token active assistant chunks, eliminating 3.5+ GiB logits OOMs on L4 while keeping native `bf16` weights + `LoRA r=128, alpha=256` (`paged_adamw_8bit`, `lr=1.5e-4`, `eval_steps=25`, `EarlyStoppingCallback`).
    - V7 converged cleanly to `val_loss = 0.019530` at `checkpoint-250`, improving over V6's `0.020576`.
 
-2. **Schema-Driven Read-Before-Write & Anti-Hallucination Guardrails** ([`src/guardrail.py`](src/guardrail.py), [`src/action_triage.py`](src/action_triage.py)):
+2. **Schema-Driven Read-Before-Write & V8 Dependency Guardrails** ([`src/guardrail.py`](src/guardrail.py), [`src/action_triage.py`](src/action_triage.py)):
    - `PureSchemaStateTracker` dynamically enforces catalog `x-ref` membership, prevents cross-collection entity leakage (e.g., `pantry` IDs passed into `grocery` carts), blocks ungrounded spoken alphanumeric tokens (e.g., `V21`, `SE7`, `B05`) until resolved via read tools, and validates device types/stock/seat availability before touching `ToolEnv.call()`.
+   - **V8 Dependency & Eligibility Gates:** Blocks premature order writes (e.g., `food_delivery.place_order` before `food_delivery.get_menu`) and blocks return/refund calls against ineligible order statuses (`cancelled`, `shipping`, `pending`).
    - `ActionTriageBarrier` intercepts premature `sys.ask_missing_info` calls when required IDs can still be queried via installed read tools or context profiles.
 
 3. **Deterministic Financial, Temporal & Conditional Safety Layer** ([`src/hybrid_engine.py`](src/hybrid_engine.py), [`src/number_parser.py`](src/number_parser.py), [`src/datetime_engine.py`](src/datetime_engine.py)):
@@ -56,10 +76,14 @@ flowchart LR
 ## Repository Structure
 
 ```text
+├── app.py                      # Dark-mode Streamlit Control Tower MVP (6 interactive views)
+├── demo/                       # Sandbox scenarios, chaos-test matrix & benchmark analytics
+├── assets/screenshots/         # Verified UI showcase captures for LinkedIn & documentation
+├── .streamlit/config.toml      # Executive dark-mode theme (#0B0E17 + #0068FF)
 ├── src/                        # Core runtime: agent loop, ASR, guardrails, hybrid engine, router
 ├── notebooks/                  # L4 Max Chunked-CE training (V6/V7) & resumable Colab inference
 ├── examples/                   # Standalone zero-dependency offline guardrail showcase demo
-├── tests/                      # Unit tests covering guardrails, action triage, hybrid logic & Docker contract
+├── tests/                      # 40 unit tests covering V8 guardrails, MVP backend & Docker contract
 ├── scripts/
 │   ├── data/                   # SFT dataset builders & simulator trajectory validators
 │   ├── benchmarks/             # ASR reliability, preprocessor & training throughput benchmarks
@@ -78,12 +102,18 @@ flowchart LR
 Core guardrail, routing, hybrid-engine logic, offline demo scenarios, and Docker contract checks run cleanly with Python standard library alone (`scikit-learn` / `torch` / `vllm` are optional and only needed for GPU training or full model inference):
 
 ```bash
-# 1. Run unit & regression tests
+# 1. Run unit & regression tests (including V8 guardrails & MVP checks)
 python3 -m unittest discover -s tests -v
 
-# 2. Run the synthetic offline ReAct + Guardrail showcase
+# 2. Launch the Interactive Control Tower MVP (Dark Mode)
+pip install -r requirements-streamlit.txt
+streamlit run app.py
+
+# 3. Run the synthetic CLI showcase
 python3 examples/offline_agent_demo.py
 ```
+
+> **1-Click Streamlit Cloud Deploy:** Select branch **`deploy-streamlit`** and entrypoint **`app.py`** when creating a new app on [share.streamlit.io](https://share.streamlit.io) — that branch swaps in lightweight dependencies (`requirements-streamlit.txt`) while keeping `main` 100% aligned with the offline GPU Docker spec.
 
 For full GPU training (`pip install -r requirements.txt`) and offline Docker packaging instructions, see [`HANDOFF_DOCKER.md`](HANDOFF_DOCKER.md) and [`training_code/README.md`](training_code/README.md).
 
@@ -92,7 +122,7 @@ For full GPU training (`pip install -r requirements.txt`) and offline Docker pac
 ## Post-Competition Roadmap (V8)
 
 Detailed in [`docs/V8_RESEARCH_ROADMAP.md`](docs/V8_RESEARCH_ROADMAP.md):
-- **Dependency-Graph Guardrails:** Enforcing nested item/menu prerequisites (`get_menu` before `place_order`) and return-eligibility status gates.
+- **Dependency-Graph Guardrails (Completed in V8):** Enforcing nested item/menu prerequisites (`get_menu` before `place_order`), ineligible return/cancel status gates, and full-utterance spoken monetary extraction (`src/number_parser.py`).
 - **Selective Test-Time Compute & Dual-ASR:** Running `Best-of-N` simulator rollouts ([`run_infer_best_of_n.py`](run_infer_best_of_n.py)) and `Qwen3-ASR-0.6B` fallback ([`src/asr_fallback.py`](src/asr_fallback.py)) selectively on uncertain utterances to balance accuracy vs latency.
 - **Closed-Loop RLVR / DPO Alignment:** Extending [`train_grpo_rlvr.py`](train_grpo_rlvr.py) from the V7 checkpoint with `SOFT_NOOP` and financial-write safety penalties.
 
