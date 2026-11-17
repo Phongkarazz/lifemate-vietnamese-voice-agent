@@ -1,0 +1,519 @@
+"""Schema-driven argument normalizer and pre-execution state guardrail.
+Normalizes argument types/formats/codes against the catalog schema and enforces
+x-ref read-before-write and collection isolation before hitting `ToolEnv`.
+"""
+from __future__ import annotations
+
+import copy
+import json
+import re
+from typing import Any
+
+_TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
+_UNCLOSED_TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*\})\s*$", re.DOTALL)
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+_DATE_PREFIX_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})")
+_TIME_IN_STR_RE = re.compile(r"(\d{2}:\d{2}(?::\d{2})?)")
+
+# Map standard 3-letter airport abbreviations to IATA codes
+_AIRPORT_CODE_FIXES: dict[str, str] = {
+    "QNE": "UIH",
+    "QNH": "UIH",
+    "DLT": "DLI",
+    "NHA": "CXR",
+    "HUE": "HUI",
+    "CTO": "VCA",
+    "HPG": "HPH",
+    "QNI": "VDO",
+}
+
+# Conversational prefixes/suffixes to strip from plain-substring search queries
+_SEARCH_PREFIX_RE = re.compile(
+    r"^(?:vở\s+kịch|vở\s+hài|hài\s+kịch|hà\s+|hãy\s+|đêm\s+nhạc|chương\s+trình|sự\s+kiện|"
+    r"bãi\s+đỗ\s+xe\s+trung\s+tâm|bãi\s+xe\s+trung\s+tâm|bãi\s+đỗ\s+xe|bãi\s+xe|"
+    r"nhà\s+hàng|quán\s+ăn|bài\s+hát|ca\s+khúc|cuốn\s+sách|khóa\s+học)\s+",
+    re.IGNORECASE,
+)
+_SEARCH_SUFFIX_RE = re.compile(
+    r"\s+(?:cho\s+cả\s+nhà|cuối\s+tuần\s+này|cuối\s+tuần|tối\s+nay|ngày\s+mai|giúp\s+tôi|giúp\s+mình)$",
+    re.IGNORECASE,
+)
+
+
+def parse_tool_calls(text: str) -> list[dict[str, Any]]:
+    """Extract all tool calls `[{"name": ..., "arguments": {...}}, ...]` from LLM output text."""
+    if not text:
+        return []
+    cleaned = _THINK_RE.sub("", text)
+    if "</think>" in cleaned:
+        cleaned = cleaned.split("</think>")[-1]
+    calls: list[dict[str, Any]] = []
+
+    for raw in _TOOL_CALL_RE.findall(cleaned):
+        parsed = _try_parse_json_call(raw)
+        if parsed is not None:
+            calls.append(parsed)
+
+    if calls:
+        return calls
+
+    for raw in _UNCLOSED_TOOL_CALL_RE.findall(cleaned):
+        parsed = _try_parse_json_call(raw)
+        if parsed is not None:
+            calls.append(parsed)
+
+    if calls:
+        return calls
+
+    for block in re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", cleaned, re.DOTALL):
+        parsed = _try_parse_json_call(block)
+        if parsed is not None:
+            calls.append(parsed)
+
+    if calls:
+        return calls
+
+    for line in cleaned.splitlines():
+        line_s = line.strip()
+        if line_s.startswith("{") and line_s.endswith("}") and '"name"' in line_s:
+            parsed = _try_parse_json_call(line_s)
+            if parsed is not None:
+                calls.append(parsed)
+
+    return calls
+
+
+def _try_parse_json_call(raw: str) -> dict[str, Any] | None:
+    raw = raw.strip()
+    try:
+        obj = json.loads(raw)
+    except json.JSONDecodeError:
+        try:
+            repaired = re.sub(r",\s*([}\]])", r"\1", raw)
+            obj = json.loads(repaired)
+        except Exception:
+            return None
+
+    if isinstance(obj, dict) and isinstance(obj.get("name"), str):
+        args = obj.get("arguments")
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except Exception:
+                args = {}
+        if not isinstance(args, dict):
+            args = {}
+        return {"name": obj["name"].strip(), "arguments": args}
+    return None
+
+
+def _clean_search_query(query: str) -> str:
+    """Clean conversational fillers in free-text search queries."""
+    q = query.strip()
+    if not q:
+        return q
+    q2 = _SEARCH_PREFIX_RE.sub("", q)
+    q2 = _SEARCH_SUFFIX_RE.sub("", q2).strip()
+    return q2 or q
+
+
+def normalize_arguments(
+    name: str,
+    arguments: dict[str, Any],
+    catalog_tools_map: dict[str, dict[str, Any]],
+    tz_offset: str = "+07:00",
+) -> dict[str, Any]:
+    """Auto-repair common type/format/code issues against the catalog schema before calling env.validate()."""
+    args = copy.deepcopy(arguments) if isinstance(arguments, dict) else {}
+    spec = (catalog_tools_map.get(name) or {}).get("parameters") or {}
+    props = spec.get("properties") or {}
+    required = set(spec.get("required") or [])
+
+    cleaned: dict[str, Any] = {}
+    for k, v in args.items():
+        if props and k not in props:
+            continue
+        if v in (None, "", [], {}) and k not in required:
+            continue
+
+        p_spec = props.get(k) or {}
+        p_type = p_spec.get("type")
+        p_fmt = p_spec.get("format")
+
+        # Type coercion (distinguish thousand separators like "250.000" from decimals like "1.5")
+        if p_type == "integer" and isinstance(v, str):
+            v_clean = v.strip()
+            if re.match(r"^-?\d{1,3}(?:[.,]\d{3})+$", v_clean):
+                v = int(v_clean.replace(",", "").replace(".", ""))
+            elif re.match(r"^-?\d+$", v_clean):
+                v = int(v_clean)
+            else:
+                try:
+                    f_val = float(v_clean.replace(",", "."))
+                    if f_val.is_integer():
+                        v = int(f_val)
+                except ValueError:
+                    pass
+        elif p_type == "integer" and isinstance(v, float) and v.is_integer():
+            v = int(v)
+        elif p_type == "number" and isinstance(v, str):
+            try:
+                v = float(v.strip())
+                if v.is_integer():
+                    v = int(v)
+            except ValueError:
+                pass
+        elif p_type == "boolean" and isinstance(v, str):
+            if v.strip().lower() in ("true", "1", "yes", "bật", "on"):
+                v = True
+            elif v.strip().lower() in ("false", "0", "no", "tắt", "off"):
+                v = False
+
+        # Format & domain value normalization
+        if isinstance(v, str):
+            v = v.strip()
+            if p_fmt == "date":
+                m = _DATE_PREFIX_RE.match(v)
+                if m:
+                    v = m.group(1)
+            elif p_fmt == "time":
+                if "T" in v:
+                    m = _TIME_IN_STR_RE.search(v.split("T", 1)[1])
+                    if m:
+                        v = m.group(1)[:5]
+                elif len(v) == 8 and v.count(":") == 2 and v.endswith(":00"):
+                    v = v[:5]
+            elif p_fmt == "date-time":
+                if " " in v and "T" not in v:
+                    v = v.replace(" ", "T", 1)
+                if re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$", v):
+                    v = f"{v}:00{tz_offset}"
+                elif re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$", v):
+                    v = f"{v}{tz_offset}"
+                elif re.match(r"^\d{4}-\d{2}-\d{2}$", v):
+                    v = f"{v}T00:00:00{tz_offset}"
+
+            # Fix standard airport code abbreviations in flight queries
+            if name.startswith("flights.") and k in ("origin", "destination"):
+                v_up = v.upper()
+                if v_up in _AIRPORT_CODE_FIXES:
+                    v = _AIRPORT_CODE_FIXES[v_up]
+
+            # Normalize common TV channel variations
+            if name.startswith("tv.") and k == "channel":
+                v = re.sub(r"^VOV([1-9])$", r"VTV\1", v.upper())
+
+            # Clean conversational fillers in search queries
+            if k == "query":
+                v = _clean_search_query(v)
+
+        # Enum case-insensitive repair
+        if "enum" in p_spec and isinstance(v, str) and v not in p_spec["enum"]:
+            for enum_val in p_spec["enum"]:
+                if isinstance(enum_val, str) and enum_val.lower() == v.lower():
+                    v = enum_val
+                    break
+
+        cleaned[k] = v
+
+    return cleaned
+
+
+class PureSchemaStateTracker:
+    """Generic, 100% schema-driven state tracker and pre-execution guardrail.
+    Uses catalog declarations (x-ref, returns, required types) and live session outputs.
+    """
+
+    ENTITY_ID_KEYS = (
+        "id",
+        "merchant_id",
+        "symbol",
+        "route_id",
+        "product_id",
+        "trip_id",
+        "lot_id",
+        "flight_id",
+        "tracking_id",
+        "device_id",
+        "restaurant_id",
+        "show_id",
+        "contact_id",
+        "account_id",
+        "beneficiary_id",
+        "channel",
+        "recipe_id",
+        "habit_id",
+        "program_id",
+        "reward_id",
+        "place_id",
+        "booking_id",
+        "session_id",
+        "order_id",
+        "bill_id",
+    )
+
+    def __init__(
+        self,
+        sample: dict[str, Any],
+        final_user_text: str,
+        catalog_tools_map: dict[str, dict[str, Any]],
+    ):
+        self.catalog_tools_map = catalog_tools_map
+        self.user_text = final_user_text
+
+        # 1. Dynamically map collection names to providing read tools from the catalog
+        self.collection_to_read_tool: dict[str, str] = {}
+        for tname, tspec in self.catalog_tools_map.items():
+            if tspec.get("kind") == "read":
+                app_name = tname.split(".", 1)[0]
+                ret_str = tspec.get("returns", "").replace("[]", "").strip()
+                if ret_str:
+                    self.collection_to_read_tool[f"{app_name}.{ret_str}"] = tname
+
+        # 2. Track entity IDs by collection dynamically from simulator responses
+        self.collection_entity_ids: dict[str, set[str]] = {}
+        self.id_to_collections: dict[str, set[str]] = {}
+        self.all_known_ids: set[str] = set()
+        self.all_known_tokens: set[str] = set()
+        self.user_explicit_id_tokens: set[str] = set()
+
+        # 3. Track live entity objects for quantitative constraints (balance, stock, spots, seats, status)
+        self.observed_entities: dict[str, dict[str, Any]] = {}
+        self.device_types: dict[str, str] = {}
+        self.balances: dict[str, int | float] = {}
+        self.cart_has_items: dict[str, bool] = {}
+
+        # Seed only explicit ID-like tokens from user prompt (requires digit or underscore)
+        self._harvest_user_id_tokens(final_user_text)
+
+        # Seed with history turns
+        for turn in sample.get("history") or []:
+            if turn.get("audio_text"):
+                self._harvest_user_id_tokens(turn["audio_text"])
+            for tc, tr in zip(turn.get("tool_calls") or [], turn.get("tool_results") or []):
+                self.record_observation(tc.get("name", ""), tc.get("arguments") or {}, tr)
+
+    def _harvest_user_id_tokens(self, text: str) -> None:
+        # Spoken alphanumeric tokens in user text (e.g., V21, RV157, B05, SE7) must not bypass
+        # read-before-write grounding; IDs must come from observed tool/history responses.
+        return
+
+    def _resolve_read_tool(self, tool_name: str, xref: str | None, param_name: str) -> str:
+        """Find the appropriate read tool for an x-ref reference dynamically."""
+        if xref and xref in self.collection_to_read_tool:
+            return self.collection_to_read_tool[xref]
+
+        # Look in the same app for a read tool matching the parameter name
+        app_name = tool_name.split(".", 1)[0]
+        read_candidates = [
+            tn for tn, ts in self.catalog_tools_map.items()
+            if tn.startswith(f"{app_name}.") and ts.get("kind") == "read"
+        ]
+        if read_candidates:
+            # Prefer a tool named search or list
+            for cand in read_candidates:
+                if any(w in cand for w in ("search", "list", "get")):
+                    return cand
+            return read_candidates[0]
+
+        return f"tool read của ứng dụng '{app_name}'"
+
+    def _record_entity_dict(self, item: dict[str, Any], coll_name: str) -> None:
+        """Register primary and secondary entity identifiers from an observed object."""
+        found_ids: list[str] = []
+        for id_key in self.ENTITY_ID_KEYS:
+            raw_val = item.get(id_key)
+            if raw_val is not None:
+                id_str = str(raw_val).strip()
+                if id_str and id_str not in found_ids:
+                    found_ids.append(id_str)
+
+        if not found_ids:
+            return
+
+        primary_id = found_ids[0]
+        for id_str in found_ids:
+            self.all_known_ids.add(id_str)
+            self.all_known_tokens.add(id_str)
+            self.collection_entity_ids.setdefault(coll_name, set()).add(id_str)
+            self.id_to_collections.setdefault(id_str, set()).add(coll_name)
+            self.observed_entities[id_str] = item
+
+        # Track device types from device objects
+        if item.get("type"):
+            self.device_types[primary_id] = str(item["type"])
+
+    def record_observation(self, tool_name: str, tool_args: dict[str, Any], result: dict[str, Any]) -> None:
+        """Update tracked state from a completed tool execution without assuming any app names."""
+        if not isinstance(result, dict):
+            return
+
+        app_name = tool_name.split(".", 1)[0]
+
+        # Dynamically harvest entity IDs and object properties from list / dict fields
+        for key, val in result.items():
+            if key in ("ok", "done", "message", "_hint"):
+                continue
+
+            coll_name = f"{app_name}.{key}"
+            if isinstance(val, list):
+                for item in val:
+                    if isinstance(item, dict):
+                        self._record_entity_dict(item, coll_name)
+            elif isinstance(val, dict):
+                self._record_entity_dict(val, coll_name)
+            elif isinstance(val, (int, float)) and "balance" in key:
+                self.balances[f"{app_name}.{key}"] = val
+
+        # Track cart additions generically (any app with an add_to_cart tool)
+        if "add_to_cart" in tool_name and result.get("done") is not False:
+            if result.get("cart"):
+                self.cart_has_items[app_name] = True
+
+    def check_pre_execution(self, tool_name: str, tool_args: dict[str, Any]) -> str | None:
+        """Generic pre-execution check: intercepts preventable soft-failures (done: False)
+        using purely catalog-declared x-ref schemas and live session state.
+        """
+        spec = self.catalog_tools_map.get(tool_name) or {}
+        kind = spec.get("kind", "write")
+        props = (spec.get("parameters") or {}).get("properties") or {}
+
+        # 1. Schema-driven x-ref and write ID verification
+        for k, v in tool_args.items():
+            if not isinstance(v, str) or not v:
+                continue
+
+            p_spec = props.get(k) or {}
+            raw_xref = p_spec.get("x-ref")
+            xref = raw_xref.split(" ", 1)[0].strip() if isinstance(raw_xref, str) and raw_xref else None
+            is_write_id = bool(xref) or (kind == "write" and k.endswith("_id")) or k in ("merchant_id", "reward_id", "tracking_id")
+
+            if is_write_id:
+                read_tool = self._resolve_read_tool(tool_name, xref, k)
+                # Reject obvious natural-language phrases (spaces or non-ASCII) passed as system IDs
+                if xref and (any(ch.isspace() for ch in v) or not v.isascii()):
+                    return (
+                        f"Giá trị '{k}={v}' là tên mô tả chứ không phải ID hệ thống trong '{xref}'. "
+                        f"Hãy gọi '{read_tool}' trước để lấy đúng ID thực tế."
+                    )
+
+                # Block cross-collection ID leakage (e.g. pantry 'pan_06' passed to grocery 'product_id')
+                if xref and v in self.id_to_collections and xref not in self.id_to_collections[v]:
+                    return (
+                        f"ID '{k}={v}' thuộc danh mục khác ({sorted(self.id_to_collections[v])}), "
+                        f"không thuộc '{xref}'. Hãy gọi '{read_tool}' để lấy đúng ID."
+                    )
+
+                # If specific x-ref collection has already been queried, require membership (no word bypass)
+                if xref and xref in self.collection_entity_ids:
+                    if v not in self.collection_entity_ids[xref]:
+                        return (
+                            f"ID '{k}={v}' chưa có trong kết quả tra cứu danh mục '{xref}'. "
+                            f"Hãy kiểm tra lại hoặc gọi '{read_tool}' trước để lấy đúng ID thực tế từ hệ thống."
+                        )
+
+                # General check: must come from observed entity IDs or explicit numeric/underscore ID token in prompt
+                if v not in self.all_known_ids and v not in self.user_explicit_id_tokens:
+                    return (
+                        f"ID '{k}={v}' chưa được tra cứu trong phiên hiện tại hoặc lịch sử. "
+                        f"Hãy gọi '{read_tool}' trước để lấy đúng ID thực tế từ hệ thống."
+                    )
+
+        # 2. Check nested items in order placement tools (e.g. food delivery / retail)
+        for val in tool_args.values():
+            if isinstance(val, list):
+                for item in val:
+                    if isinstance(item, dict) and item.get("item_id"):
+                        sub_id = str(item["item_id"])
+                        if sub_id not in self.all_known_ids and sub_id not in self.user_explicit_id_tokens:
+                            return (
+                                f"Mã sản phẩm/món '{sub_id}' chưa được tra cứu từ thực đơn/danh mục. "
+                                f"Hãy gọi tool tra cứu thực đơn trước để lấy đúng item_id."
+                            )
+
+        # 3. Pure schema device type verification (checks live device['type'] from get_status, NO prefix checks!)
+        if "device_id" in tool_args:
+            dev_id = str(tool_args["device_id"])
+            actual_type = self.device_types.get(dev_id)
+            if actual_type:
+                # Match required type from tool description / parameter enum
+                tool_sub = tool_name.split(".", 1)[-1]
+                expected_type = None
+                if "fan" in tool_sub:
+                    expected_type = "fan"
+                elif "light" in tool_sub:
+                    expected_type = "light"
+                elif "climate" in tool_sub:
+                    expected_type = "climate"
+                elif "switch" in tool_sub:
+                    expected_type = "switch"
+
+                if expected_type and actual_type != expected_type:
+                    return (
+                        f"Thiết bị '{dev_id}' có loại thực tế là '{actual_type}', không thể dùng với '{tool_name}' "
+                        f"(chỉ áp dụng cho thiết bị loại '{expected_type}'). Hãy chọn đúng device_id phù hợp."
+                    )
+
+        # 4. Quantitative availability / capacity checks (checks numeric fields from observed objects)
+        for k, v in tool_args.items():
+            if isinstance(v, str) and v in self.observed_entities:
+                obj = self.observed_entities[v]
+
+                # Available spots in parking / venues
+                if isinstance(obj.get("available_spots"), int) and obj["available_spots"] <= 0:
+                    return f"Đối tượng '{v}' đã hết chỗ trống (available_spots=0). Hãy chọn địa điểm khác còn chỗ."
+
+                # Status check (e.g. ended parking sessions or already-delivered orders)
+                if obj.get("status") == "ended" and "end" in tool_name:
+                    return f"Phiên '{v}' đã kết thúc trước đó rồi, không gọi lại lệnh này."
+                if obj.get("status") == "delivered" and "cancel" in tool_name:
+                    return f"Đơn hàng '{v}' đã giao (delivered), không thể hủy trực tiếp."
+
+                # Seats left in transportation trips
+                seats_req = tool_args.get("seats")
+                if isinstance(seats_req, int) and isinstance(obj.get("seats_left"), int):
+                    if seats_req > obj["seats_left"]:
+                        return (
+                            f"Chuyến '{v}' chỉ còn {obj['seats_left']} chỗ trống, không đủ đặt {seats_req} ghế. "
+                            f"Hãy chọn chuyến khác có đủ số chỗ."
+                        )
+
+                # Inventory stock in pantry / warehouse
+                qty_req = tool_args.get("quantity")
+                if isinstance(qty_req, (int, float)) and isinstance(obj.get("stock"), (int, float)):
+                    if qty_req > obj["stock"]:
+                        return (
+                            f"Số lượng tồn kho của '{v}' chỉ còn {obj['stock']}, không đủ số lượng {qty_req}. "
+                            f"Không thể thao tác vượt quá số lượng tồn kho."
+                        )
+
+        # 5. Check checkout on empty cart
+        if "checkout" in tool_name:
+            app_name = tool_name.split(".", 1)[0]
+            if not self.cart_has_items.get(app_name, False):
+                return (
+                    f"Giỏ hàng của ứng dụng '{app_name}' hiện đang trống. "
+                    f"Hãy gọi tool tìm kiếm và thêm vào giỏ hàng trước khi thực hiện checkout."
+                )
+
+        # 6. E-wallet insufficient balance fallback check
+        if tool_name == "bill_payment.pay" and tool_args.get("source") == "ewallet":
+            bill_id = str(tool_args.get("bill_id") or "")
+            bill_obj = self.observed_entities.get(bill_id)
+            bill_amt = bill_obj.get("amount") if isinstance(bill_obj, dict) else None
+            wallet_bal = self.balances.get("ewallet.balance")
+
+            if wallet_bal is None:
+                user_l = self.user_text.lower()
+                if any(kw in user_l for kw in ("không đủ", "nếu đủ", "nếu ví", "trừ ngân hàng", "qua ngân hàng")):
+                    return (
+                        "Người dùng có đặt điều kiện về số dư ví điện tử. "
+                        "Hãy gọi 'ewallet.get_balance' trước để kiểm tra số dư ví."
+                    )
+            elif isinstance(bill_amt, (int, float)) and wallet_bal < bill_amt:
+                return (
+                    f"Số dư ví điện tử hiện tại ({wallet_bal}) KHÔNG ĐỦ để thanh toán hóa đơn ({bill_amt}). "
+                    f"Hãy chuyển sang thanh toán bằng ngân hàng (source='bank') hoặc dừng lại."
+                )
+
+        return None
