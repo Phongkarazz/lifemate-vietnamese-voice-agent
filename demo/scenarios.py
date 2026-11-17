@@ -17,7 +17,7 @@ from src.asr_fallback import SafeContextPreprocessor
 from src.datetime_engine import VietnameseRelativeDateTimeEngine
 from src.guardrail import PureSchemaStateTracker, parse_tool_calls
 from src.hybrid_engine import HybridProgramAidedEngine
-from src.number_parser import extract_vietnamese_amount
+from src.number_parser import extract_monetary_amount, extract_vietnamese_amount
 from src.prompt_builder import build_allowed_tools_block
 from src.router import SemanticToolRouter
 
@@ -140,7 +140,7 @@ FULL_CATALOG_APPS: dict[str, dict[str, Any]] = {
         "id": "food_delivery",
         "name_vi": "Giao đồ ăn",
         "group": "lifestyle",
-        "description": "Tìm nhà hàng, xem thực đơn và đặt giao đồ ăn",
+        "description": "Tìm quán ăn, nhà hàng, xem thực đơn món ăn phở bún cơm và đặt giao đồ ăn",
         "tools": [
             {
                 "name": "food_delivery.list_restaurants",
@@ -199,7 +199,7 @@ FULL_CATALOG_APPS: dict[str, dict[str, Any]] = {
         "id": "grocery",
         "name_vi": "Đi chợ siêu thị",
         "group": "shopping",
-        "description": "Tìm sản phẩm tạp hóa và thêm vào giỏ hàng",
+        "description": "Đi chợ siêu thị tìm mua sản phẩm yến mạch thực phẩm hộp gói và thêm vào giỏ hàng",
         "tools": [
             {
                 "name": "grocery.search",
@@ -222,7 +222,7 @@ FULL_CATALOG_APPS: dict[str, dict[str, Any]] = {
         "id": "weather",
         "name_vi": "Thời tiết",
         "group": "utilities",
-        "description": "Dự báo thời tiết hiện tại và nhiều ngày tới",
+        "description": "Xem dự báo thời tiết mưa nắng nhiệt độ hôm nay ngày mai",
         "tools": [
             {"name": "weather.get_forecast", "kind": "read", "parameters": {"type": "object", "properties": {"days": {"type": "integer"}}}},
         ],
@@ -231,7 +231,7 @@ FULL_CATALOG_APPS: dict[str, dict[str, Any]] = {
         "id": "reminders",
         "name_vi": "Nhắc nhở",
         "group": "productivity",
-        "description": "Tạo và quản lý nhắc nhở công việc",
+        "description": "Tạo nhắc nhở lịch hẹn báo thức mang áo mưa công việc theo giờ",
         "tools": [
             {
                 "name": "reminders.create",
@@ -684,6 +684,7 @@ def analyze_vietnamese_utterance(utterance: str, top_k: int = 4) -> dict[str, An
     prep = SafeContextPreprocessor(sim_threshold=0.80)
     cleaned_text, evidence = prep.preprocess_with_evidence(utterance, sample)
     parsed_num = extract_vietnamese_amount(utterance)
+    monetary_amt = extract_monetary_amount(utterance)
     resolved_iso = VietnameseRelativeDateTimeEngine.resolve_datetime_iso(utterance, "2026-11-17T09:00:00+07:00")
     is_cancel = HybridProgramAidedEngine.is_complete_cancellation(utterance)
 
@@ -696,6 +697,7 @@ def analyze_vietnamese_utterance(utterance: str, top_k: int = 4) -> dict[str, An
         "secondary_apps": sec,
         "ranked_rows": ranked_rows,
         "parsed_number": parsed_num,
+        "monetary_amount": monetary_amt,
         "resolved_iso": resolved_iso,
         "is_cancellation": is_cancel,
         "full_prompt_chars": len(full_prompt),

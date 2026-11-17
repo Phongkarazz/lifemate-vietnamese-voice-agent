@@ -180,3 +180,59 @@ def extract_vietnamese_amount(text: str) -> int | None:
         if not re.match(r"^(giờ|h\b|phút|rưỡi|tháng|năm|/|:)", after):
             return int(m.group(1))
     return None
+
+
+_NON_MONEY_CLASSIFIERS = (
+    r"^(giờ|h\b|phút|giây|rưỡi|tháng|năm|ngày|hôm|lần|bước|/|:|"
+    r"tô|bát|dĩa|đĩa|phần|suất|hộp|gói|chai|lon|ly|cốc|tách|"
+    r"cái|chiếc|quả|trái|cuốn|quyển|vé|ghế|chỗ|người|khách|cổ phiếu|cổ)"
+)
+
+
+def extract_monetary_amount(text: str) -> int | None:
+    """Extract only genuine VND monetary amounts from a Vietnamese utterance.
+
+    Ignores clock times ('8 giờ rưỡi') and item quantity counts ('1 tô phở',
+    '2 hộp yến mạch') when no monetary scale or currency unit is present.
+    """
+    if not text:
+        return None
+    t = text.strip().lower()
+
+    # 1. Explicit numeric money with unit/scale suffix or grouped thousands (e.g. 250.000, 1.5 triệu, 500k)
+    for m in re.finditer(
+        r"\b(\d+(?:[.,]\d{3})+|\d+(?:[.,]\d+)?)\s*(nghìn|ngàn|triệu|tỷ|k|đồng|vnđ|vnd|đ)?\b",
+        t,
+    ):
+        after = t[m.end() : m.end() + 16].lstrip()
+        if not m.group(2) and re.match(_NON_MONEY_CLASSIFIERS, after):
+            continue
+        if m.group(2) or "." in m.group(1) or "," in m.group(1) or len(m.group(1)) >= 4:
+            val_str = m.group(1)
+            unit = m.group(2) or ""
+            if unit in _UNIT_SCALES:
+                return parse_vietnamese_number(f"{val_str} {unit}")
+            clean_digits = val_str.replace(".", "").replace(",", "")
+            if clean_digits.isdigit():
+                return int(clean_digits)
+
+    # 2. Compound Vietnamese spoken number spans with monetary scales (nghìn/triệu/tỷ/ngàn)
+    tokens = re.findall(r"[a-zà-ỹ]+", t)
+    spans: list[list[str]] = []
+    cur: list[str] = []
+    for tok in tokens:
+        if tok in _SPOKEN_NUM_TOKENS:
+            cur.append(tok)
+        elif cur:
+            spans.append(cur)
+            cur = []
+    if cur:
+        spans.append(cur)
+
+    for sp in sorted(spans, key=len, reverse=True):
+        if not any(scale in sp for scale in ("nghìn", "ngàn", "triệu", "tỷ")):
+            continue
+        val = _parse_compound_words(sp)
+        if val is not None:
+            return val
+    return None

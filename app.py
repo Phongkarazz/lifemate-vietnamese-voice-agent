@@ -1,13 +1,15 @@
-"""LifeMate Control Tower — Interactive Portfolio MVP & V8 Guardrail Showcase.
+"""LifeMate — Minimalist Vietnamese Offline Agent & V8 Safety Workspace.
 
-Dark-mode analytical & execution dashboard running the core Python pipeline (`src/`)
-for Zalo AI Challenge 2026 LifeMate (< 6B Offline Voice-to-Action Agent).
+Designed around clean product clarity (zero visual noise, fast response, immediate utility)
+while executing the genuine Python core pipeline (`src/`) on CPU.
 """
 from __future__ import annotations
 
-import json
+import html
 import sys
+from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import plotly.express as px
@@ -32,541 +34,745 @@ from demo.scenarios import (  # noqa: E402
 )
 
 st.set_page_config(
-    page_title="LifeMate Control Tower — Offline Voice Agent",
-    page_icon="⚡",
+    page_title="LifeMate — Trợ lý tác vụ tiếng Việt ngoại tuyến",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 # ---------------------------------------------------------------------------
-# Dark Executive Styling (Veraxus / Zalo Blue Palette: #0B0E17 + #0068FF)
+# Clean Zalo-Inspired Daylight Design System (#FFFFFF / #F7F8FA / #0068FF)
 # ---------------------------------------------------------------------------
 st.markdown(
     """
 <style>
-.block-container {
-    padding-top: 1.8rem;
-    padding-bottom: 1.5rem;
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+    --bg-canvas: #FFFFFF;
+    --bg-surface: #F7F8FA;
+    --border-hairline: #E5E7EB;
+    --border-strong: #CBD5E1;
+    --text-primary: #111827;
+    --text-secondary: #4B5563;
+    --text-muted: #6B7280;
+    --brand-blue: #0068FF;
+    --status-ok: #059669;
+    --status-ok-bg: #ECFDF5;
+    --status-warn: #B45309;
+    --status-warn-bg: #FFFBEB;
+    --status-err: #DC2626;
+    --status-err-bg: #FEF2F2;
 }
-.stApp {
-    background: radial-gradient(circle at 12% 0%, rgba(0, 104, 255, 0.14), transparent 42%),
-                radial-gradient(circle at 88% 8%, rgba(0, 212, 255, 0.08), transparent 36%),
-                #0B0E17;
-    color: #F8FAFC;
+
+html, body, [class*="css"], .stApp {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
 }
-.hero-banner {
-    background: linear-gradient(135deg, rgba(18, 22, 36, 0.96) 0%, rgba(12, 24, 52, 0.92) 100%);
-    border: 1px solid rgba(0, 104, 255, 0.42);
-    border-radius: 14px;
-    padding: 15px 20px;
-    margin-bottom: 12px;
+
+code, pre, .mono {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
-.hero-title {
-    font-size: 1.55rem;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    color: #F8FAFC;
-    margin: 0 0 4px 0;
+
+/* Remove sidebar chrome completely — keep user focused on 1 clean workspace */
+[data-testid="stSidebar"],
+[data-testid="stSidebarCollapsedControl"],
+#MainMenu,
+footer {
+    display: none !important;
 }
-.hero-sub {
-    color: #CBD5E1;
-    font-size: 0.90rem;
-    margin: 0;
+
+[data-testid="stHeader"] {
+    background: transparent !important;
+    height: 2.4rem !important;
 }
-.badge-row {
+
+.block-container,
+[data-testid="stMainBlockContainer"] {
+    max-width: 1060px;
+    margin: 0 auto;
+    padding: 3.4rem 1.5rem 2.75rem 1.5rem !important;
+}
+
+/* Top Product Header: clean, restrained, zero gradient or badge soup */
+.lm-header {
     display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
     flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 9px;
+    gap: 12px;
+    padding-bottom: 14px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid var(--border-hairline);
 }
-.pill {
-    display: inline-block;
-    padding: 3px 10px;
-    border-radius: 999px;
-    font-size: 0.75rem;
+.lm-brand-title {
+    font-size: 1.45rem;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    color: var(--text-primary);
+    line-height: 1.2;
+}
+.lm-brand-sub {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin-top: 3px;
+}
+.lm-meta-strip {
+    font-size: 0.80rem;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.lm-meta-strip strong {
+    color: var(--text-primary);
     font-weight: 600;
-    background: rgba(0, 104, 255, 0.18);
-    border: 1px solid rgba(56, 189, 248, 0.35);
-    color: #E0F2FE;
 }
-.kpi-card {
-    background: #12141C;
-    border: 1px solid rgba(148, 163, 184, 0.20);
-    border-top: 3px solid #0068FF;
-    border-radius: 12px;
+
+/* Underlined editorial tabs */
+[data-baseweb="tab-list"] {
+    gap: 24px;
+    border-bottom: 1px solid var(--border-hairline);
+    margin-bottom: 18px;
+}
+[data-baseweb="tab"] {
+    padding: 8px 2px 10px 2px !important;
+    font-size: 0.90rem !important;
+    font-weight: 500 !important;
+    color: var(--text-secondary) !important;
+    background: transparent !important;
+}
+[aria-selected="true"][data-baseweb="tab"] {
+    color: var(--brand-blue) !important;
+    font-weight: 600 !important;
+}
+
+/* Flat metric cells */
+.lm-strip {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    border: 1px solid var(--border-hairline);
+    border-radius: 8px;
+    background: var(--bg-surface);
+    margin: 12px 0 18px 0;
+    overflow: hidden;
+}
+.lm-cell {
     padding: 12px 15px;
-    height: 100%;
+    border-right: 1px solid var(--border-hairline);
 }
-.kpi-label {
+.lm-cell:last-child {
+    border-right: none;
+}
+.lm-cell-label {
     font-size: 0.74rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: #94A3B8;
+    font-weight: 500;
+    color: var(--text-muted);
     margin-bottom: 4px;
 }
-.kpi-val {
-    font-size: 1.48rem;
-    font-weight: 700;
-    color: #F8FAFC;
-    line-height: 1.15;
+.lm-cell-val {
+    font-size: 1.12rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.3;
+    word-break: break-word;
 }
-.kpi-delta {
-    font-size: 0.78rem;
-    color: #34D399;
-    margin-top: 4px;
+.lm-cell-sub {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-top: 3px;
 }
-.step-card {
-    background: #12141C;
-    border: 1px solid rgba(148, 163, 184, 0.22);
-    border-radius: 10px;
-    padding: 12px 14px;
-    margin-bottom: 10px;
-}
-.step-intercept {
-    border-left: 4px solid #F59E0B;
-    background: rgba(245, 158, 11, 0.08);
-}
-.step-ok {
-    border-left: 4px solid #10B981;
-}
-.step-bad {
-    border-left: 4px solid #EF4444;
-    background: rgba(239, 68, 68, 0.08);
-}
-.arch-grid {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 10px;
-    margin: 10px 0 18px 0;
-}
-.arch-box {
-    background: #12141C;
-    border: 1px solid rgba(56, 189, 248, 0.28);
-    border-radius: 10px;
-    padding: 12px;
-}
-.arch-box h4 {
-    margin: 0 0 6px 0;
-    font-size: 0.90rem;
-    color: #60A5FA;
-}
-.arch-box p {
-    margin: 0;
+
+/* Quick preset buttons clean polish */
+div[data-testid="stButton"] button {
+    border-radius: 6px;
+    border: 1px solid var(--border-hairline);
+    background-color: var(--bg-surface);
+    color: var(--text-primary);
     font-size: 0.80rem;
-    color: #CBD5E1;
+    font-weight: 500;
+    padding: 0.42rem 0.65rem;
+    transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+div[data-testid="stButton"] button:hover {
+    border-color: var(--brand-blue);
+    background-color: #F0F6FF;
+    color: var(--brand-blue);
+}
+
+/* Execution step rows */
+.lm-step {
+    border: 1px solid var(--border-hairline);
+    border-radius: 8px;
+    padding: 10px 13px;
+    margin-bottom: 8px;
+    background: var(--bg-canvas);
+}
+.lm-step-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 5px;
+}
+.lm-step-idx {
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+.lm-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.70rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+.tag-ok { color: var(--status-ok); background: var(--status-ok-bg); }
+.tag-warn { color: var(--status-warn); background: var(--status-warn-bg); }
+.tag-err { color: var(--status-err); background: var(--status-err-bg); }
+.lm-call {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.78rem;
+    color: var(--text-primary);
+    background: var(--bg-surface);
+    padding: 5px 8px;
+    border-radius: 5px;
+    word-break: break-all;
+}
+.lm-note {
+    font-size: 0.80rem;
+    color: var(--text-secondary);
+    margin-top: 5px;
     line-height: 1.4;
 }
-@media (max-width: 900px) {
-    .arch-grid { grid-template-columns: 1fr; }
+
+/* State summary card */
+.lm-state-card {
+    border: 1px solid var(--border-hairline);
+    border-radius: 8px;
+    background: var(--bg-surface);
+    padding: 14px 16px;
+}
+.lm-state-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border-hairline);
+    font-size: 0.84rem;
+}
+.lm-state-row:last-child {
+    border-bottom: none;
+}
+.lm-state-k {
+    color: var(--text-secondary);
+}
+.lm-state-v {
+    color: var(--text-primary);
+    font-weight: 600;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Flat 3-col defense cards */
+.lm-pillar-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 14px;
+}
+.lm-pillar {
+    border: 1px solid var(--border-hairline);
+    border-radius: 8px;
+    background: var(--bg-surface);
+    padding: 13px 15px;
+}
+.lm-pillar h4 {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 5px 0;
+}
+.lm-pillar p {
+    font-size: 0.80rem;
+    color: var(--text-secondary);
+    margin: 0;
+    line-height: 1.45;
+}
+
+.lm-section-title {
+    font-size: 1.02rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 2px 0 4px 0;
+}
+.lm-section-desc {
+    font-size: 0.84rem;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+}
+
+@media (max-width: 820px) {
+    .lm-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .lm-pillar-grid { grid-template-columns: 1fr; }
 }
 </style>
 """,
     unsafe_allow_html=True,
 )
 
-VIEWS = {
-    "overview": "1. Executive Overview & Benchmarks",
-    "sandbox": "2. Interactive ReAct Sandbox",
-    "risk": "3. FinTech Risk & V8 Safety Lab",
-    "router": "4. Semantic Router & Context Budget",
-    "training": "5. L4 Training & Chunked-CE Analytics",
-    "nlp": "6. Vietnamese Spoken NLP & Voice Lab",
+
+# ---------------------------------------------------------------------------
+# Formatting & Domain Helpers
+# ---------------------------------------------------------------------------
+SCENARIO_UI_META: dict[str, dict[str, str]] = {
+    "fintech_bill_fallback": {
+        "btn": "Trả tiền điện (thiếu ví)",
+        "label": "Hóa đơn EVN — Đổi nguồn khi ví thiếu tiền",
+    },
+    "v8_food_menu_dependency": {
+        "btn": "Đặt phở theo thực đơn",
+        "label": "Giao đồ ăn — Bắt buộc đọc thực đơn trước khi đặt (V8)",
+    },
+    "spoken_id_read_before_write": {
+        "btn": "Thêm giỏ hàng (lọc mã giả)",
+        "label": "Đi chợ — Chặn mã đọc miệng 'SP204' chưa tra cứu",
+    },
+    "conditional_weather_guard": {
+        "btn": "Nhắc lịch theo thời tiết",
+        "label": "Thời tiết — Chỉ tạo nhắc nhở nếu ngày mai mưa",
+    },
 }
-VIEW_KEYS = list(VIEWS.keys())
 
-query_view = st.query_params.get("view", "overview")
-default_idx = VIEW_KEYS.index(query_view) if query_view in VIEW_KEYS else 0
+PRESET_EXTRA_INPUTS = {
+    "chuyen_tien": "Chuyển hai triệu năm trăm nghìn cho chị Lan lúc 8 giờ rưỡi tối mai nhé",
+}
 
-with st.sidebar:
-    st.markdown("### ⚡ LifeMate Control Tower")
-    st.caption("Zalo AI Challenge 2026 · Offline SLM Agent (< 6B)")
-    selected_label = st.radio(
-        "Dashboard View",
-        list(VIEWS.values()),
-        index=default_idx,
+
+def _fmt_vnd(amount: int | float | None) -> str:
+    if amount is None:
+        return "Không có"
+    return f"{int(amount):,}".replace(",", ".") + " đ"
+
+
+def _fmt_iso_vi(iso_str: str | None) -> tuple[str, str]:
+    if not iso_str:
+        return "Không xác định", "Chưa có mốc giờ trong câu"
+    try:
+        dt = datetime.fromisoformat(iso_str)
+        return dt.strftime("%d/%m/%Y · %H:%M"), f"ISO +07:00 ({dt.strftime('%Y-%m-%dT%H:%M')})"
+    except ValueError:
+        return iso_str, "Định dạng ISO-8601"
+
+
+def _render_metric_strip(cells: list[tuple[str, str, str]]) -> None:
+    parts = ['<div class="lm-strip">']
+    for label, val, sub in cells:
+        parts.append(
+            f'<div class="lm-cell">'
+            f'<div class="lm-cell-label">{html.escape(label)}</div>'
+            f'<div class="lm-cell-val">{html.escape(val)}</div>'
+            f'<div class="lm-cell-sub">{html.escape(sub)}</div>'
+            f"</div>"
+        )
+    parts.append("</div>")
+    st.markdown("".join(parts), unsafe_allow_html=True)
+
+
+def _step_badge_and_note(step: dict[str, Any]) -> tuple[str, str, str]:
+    status = step["status"]
+    raw_note = str(step.get("guardrail_note", ""))
+    mapping = {
+        "EXECUTED": ("Hợp lệ", "tag-ok", "Đã qua kiểm tra schema và trạng thái hệ thống."),
+        "EXECUTED_UNCHECKED": ("Chạy thẳng", "tag-warn", "Thực thi trực tiếp vì đã tắt lá chắn bảo vệ."),
+        "INTERCEPTED": ("Đã chặn", "tag-warn", raw_note),
+        "AUTO_CORRECTED": ("Đổi nguồn tiền", "tag-warn", "Ví không đủ số dư, tự động chuyển sang tài khoản ngân hàng."),
+        "STOPPED_BY_CONDITION": ("Dừng an toàn", "tag-ok", "Điều kiện thời tiết không thỏa (không mưa), không tạo nhắc nhở thừa."),
+        "SOFT_NOOP": ("Lỗi Soft-Noop", "tag-err", raw_note),
+        "MISSED": ("Bỏ sót lệnh", "tag-err", "Logic cũ hiểu nhầm câu điều kiện và hủy toàn bộ yêu cầu từ đầu."),
+    }
+    label, cls, note = mapping.get(status, (status, "tag-warn", raw_note))
+    if status == "INTERCEPTED" and "food_delivery.get_menu" in raw_note:
+        note = "Chặn đặt món vì chưa đọc thực đơn (food_delivery.get_menu) để lấy item_id thật."
+    elif status == "INTERCEPTED" and "grocery.search" in raw_note:
+        note = "Chặn mã đọc miệng 'SP204' vì chưa tra mã sản phẩm thật qua grocery.search."
+    return label, cls, note
+
+
+def _summarize_state_rows(res: dict[str, Any]) -> list[tuple[str, str]]:
+    final_state = res["final_state"]
+    rows: list[tuple[str, str]] = []
+
+    if "bills" in final_state and final_state["bills"]:
+        bill = final_state["bills"][0]
+        status_map = {
+            "unpaid": "Chưa thanh toán",
+            "paid_via_ewallet": "Đã trả qua Ví điện tử",
+            "paid_via_bank": "Đã trả qua Ngân hàng",
+        }
+        rows.append(("Hóa đơn điện EVN", status_map.get(bill.get("status", ""), bill.get("status", ""))))
+    if "ewallet_balance" in final_state:
+        rows.append(("Số dư Ví điện tử", _fmt_vnd(final_state["ewallet_balance"])))
+    if "bank_balance" in final_state:
+        rows.append(("Số dư Ngân hàng", _fmt_vnd(final_state["bank_balance"])))
+    if "sent_sms" in final_state:
+        sms_list = final_state["sent_sms"]
+        rows.append(("Tin nhắn SMS đã gửi", f"{len(sms_list)} tin" if sms_list else "0 tin"))
+    if "food_orders" in final_state:
+        orders = final_state["food_orders"]
+        rows.append(("Đơn đặt đồ ăn", f"{len(orders)} đơn hợp lệ" if orders else "Chưa tạo được đơn"))
+    if "cart" in final_state:
+        cart = final_state["cart"]
+        rows.append(("Giỏ hàng siêu thị", f"{len(cart)} mặt hàng hợp lệ" if cart else "Trống (chưa thêm được)"))
+    if "reminders" in final_state:
+        rems = final_state["reminders"]
+        rows.append(("Nhắc nhở đã tạo", f"{len(rems)} nhắc nhở" if rems else "Không tạo nhắc nhở"))
+
+    rows.append(("Thay đổi trạng thái (Hash)", f"{res['initial_hash']} -> {res['final_hash']}"))
+    return rows
+
+
+def _plotly_clean_light(fig: go.Figure, height: int = 300) -> go.Figure:
+    fig.update_layout(
+        template="plotly_white",
+        paper_bgcolor="#FFFFFF",
+        plot_bgcolor="#FFFFFF",
+        font=dict(color="#111827", family="Inter, sans-serif", size=12),
+        title_font=dict(size=14, color="#111827"),
+        height=height,
+        margin=dict(l=32, r=16, t=42, b=32),
     )
-    active_view = VIEW_KEYS[list(VIEWS.values()).index(selected_label)]
-    if st.query_params.get("view") != active_view:
-        st.query_params["view"] = active_view
+    fig.update_xaxes(showgrid=False, linecolor="#E5E7EB", zeroline=False)
+    fig.update_yaxes(gridcolor="#F1F5F9", linecolor="#E5E7EB", zeroline=False)
+    return fig
 
-    st.divider()
-    st.markdown("**Runtime Guardrail Policy**")
-    guardrail_mode = st.toggle("Enable V8 Schema & FinTech Guardrails", value=True)
-    wallet_slider = st.slider("Simulated e-Wallet Balance (VND)", min_value=0, max_value=800_000, value=120_000, step=30_000)
-    rain_toggle = st.toggle("Simulated Tomorrow Forecast: Rain", value=False)
 
-    st.divider()
-    st.markdown("**Inference Backend Mode**")
-    st.selectbox(
-        "Active Execution Engine",
-        [
-            "Local Python Guardrail Core + Recorded V7 Trace ($0 CPU)",
-            "Remote vLLM / Colab Endpoint (BYO URL)",
-        ],
-        index=0,
-        help="Default mode executes real src/ guardrails, router, and sandbox logic in <5ms on Streamlit Cloud.",
-    )
-    st.text_input("Optional Remote vLLM Endpoint", placeholder="https://<colab-tunnel>/v1", type="password")
-    st.caption("Author: Hà Sỹ Phong · Team V7 Public: 49.60")
-
+# ---------------------------------------------------------------------------
+# Minimalist Product Header
+# ---------------------------------------------------------------------------
 st.markdown(
     """
-<div class="hero-banner">
-  <div class="hero-title">LifeMate — Offline Vietnamese Voice-to-Action AI Agent</div>
-  <p class="hero-sub">
-    End-to-end ReAct Tool-Calling SLM architecture combining <b>Qwen3-4B (LoRA r=128)</b>, <b>Chunked-CE 9,216-token training</b>,
-    <b>TF-IDF Semantic Tool Routing</b>, and <b>Zero-Hallucination Schema &amp; FinTech Guardrails</b>.
-  </p>
-  <div class="badge-row">
-    <span class="pill">4.8B Total Params (&lt; 6B Limit)</span>
-    <span class="pill">9,216 Zero-Truncation Context</span>
-    <span class="pill">Offline Docker (--network none)</span>
-    <span class="pill">Public Score: 49.60 (#1 Team V7)</span>
-    <span class="pill">V8 Dependency Guardrail Active</span>
+<div class="lm-header">
+  <div>
+    <div class="lm-brand-title">LifeMate</div>
+    <div class="lm-brand-sub">Trợ lý điều phối tác vụ tiếng Việt ngoại tuyến — Thực thi đúng lệnh, bảo vệ giao dịch trước khi chạm API</div>
+  </div>
+  <div class="lm-meta-strip">
+    Public Score <strong>49.60</strong> &nbsp;·&nbsp; Mô hình <strong>4.8B (&lt; 6B)</strong> &nbsp;·&nbsp; Chế độ chạy <strong>CPU Offline</strong>
   </div>
 </div>
 """,
     unsafe_allow_html=True,
 )
 
-
-def _render_kpi_row(items: list[tuple[str, str, str]]) -> None:
-    cols = st.columns(len(items))
-    for col, (label, val, delta) in zip(cols, items):
-        val_style = ' style="font-size:1.15rem;word-break:break-word;"' if len(val) > 14 else ""
-        col.markdown(
-            f"""
-            <div class="kpi-card">
-              <div class="kpi-label">{label}</div>
-              <div class="kpi-val"{val_style}>{val}</div>
-              <div class="kpi-delta">{delta}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+# ---------------------------------------------------------------------------
+# Session defaults for smooth instant interaction
+# ---------------------------------------------------------------------------
+if "active_scenario" not in st.session_state:
+    st.session_state["active_scenario"] = "fintech_bill_fallback"
+if "user_utterance" not in st.session_state:
+    st.session_state["user_utterance"] = SCENARIO_CATALOG["fintech_bill_fallback"]["utterance"]
 
 
-def _plotly_dark_layout(fig: go.Figure, height: int = 350) -> go.Figure:
-    fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="rgba(18, 20, 28, 0.75)",
-        plot_bgcolor="rgba(11, 14, 23, 0.70)",
-        font=dict(color="#F8FAFC", size=12),
-        title_font=dict(size=14, color="#F8FAFC"),
-        height=height,
-        margin=dict(l=36, r=20, t=44, b=36),
+def _apply_preset(scenario_id: str) -> None:
+    st.session_state["active_scenario"] = scenario_id
+    st.session_state["user_utterance"] = SCENARIO_CATALOG[scenario_id]["utterance"]
+
+
+# ---------------------------------------------------------------------------
+# 3 Focused Product Tabs
+# ---------------------------------------------------------------------------
+tab_try, tab_safety, tab_arch = st.tabs(
+    ["Thử nghiệm Trợ lý", "An toàn Giao dịch", "Hiệu năng & Kiến trúc"]
+)
+
+# ===========================================================================
+# TAB 1: Thử nghiệm Trợ lý (Hữu ích ngay trong 3 giây cho mọi người dùng)
+# ===========================================================================
+with tab_try:
+    st.markdown('<div class="lm-section-title">1. Thử câu lệnh tiếng Việt tự nhiên</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="lm-section-desc">Chọn nhanh 1 tình huống bên dưới hoặc nhập câu nói bất kỳ (có thể viết số tiền bằng chữ, giờ tương đối như "8 giờ rưỡi tối mai").</div>',
+        unsafe_allow_html=True,
     )
-    return fig
 
+    p_cols = st.columns(4)
+    for col, sid in zip(p_cols, list(SCENARIO_UI_META.keys())):
+        if col.button(SCENARIO_UI_META[sid]["btn"], key=f"btn_{sid}", use_container_width=True):
+            _apply_preset(sid)
 
-# ---------------------------------------------------------------------------
-# View 1: Executive Overview & Benchmarks
-# ---------------------------------------------------------------------------
-if active_view == "overview":
-    _render_kpi_row(
+    utterance_input = st.text_input(
+        "Câu lệnh tiếng Việt",
+        key="user_utterance",
+        label_visibility="collapsed",
+        placeholder="Ví dụ: Chuyển hai triệu năm trăm nghìn cho chị Lan lúc 8 giờ rưỡi tối mai nhé",
+    )
+
+    nlp_out = analyze_vietnamese_utterance(utterance_input or "Mở ví điện tử", top_k=4)
+    top_app_id = nlp_out["recommended_apps"][0] if nlp_out["recommended_apps"] else None
+    top_app_vi = FULL_CATALOG_APPS[top_app_id]["name_vi"] if top_app_id in FULL_CATALOG_APPS else "Chưa khớp"
+    next_app_id = nlp_out["recommended_apps"][1] if len(nlp_out["recommended_apps"]) > 1 else None
+    next_app_sub = f"Ưu tiên kế: {FULL_CATALOG_APPS[next_app_id]['name_vi']}" if next_app_id in FULL_CATALOG_APPS else "Khớp trực tiếp TF-IDF"
+
+    date_main, date_sub = _fmt_iso_vi(nlp_out["resolved_iso"])
+    monetary_val = nlp_out.get("monetary_amount")
+    amt_str = _fmt_vnd(monetary_val)
+    amt_sub = "Trích xuất số tiền tiếng Việt" if monetary_val is not None else "Không chứa số tiền"
+
+    _render_metric_strip(
         [
-            ("Final Public Score (V7)", "49.60", "+23.80 pts vs Baseline (25.80)"),
-            ("Total Parameter Budget", "4.8B", "Qwen3-4B (4.0B) + Whisper (0.8B) < 6B"),
-            ("Long-Context Training", "9,216 tok", "0% Truncated Trajectories (vs 8,192)"),
-            ("L4 Peak Training VRAM", "14.02 GiB", "256-tok Chunked CE on 22.03 GiB GPU"),
+            ("Ứng dụng định tuyến", top_app_vi, next_app_sub),
+            ("Số tiền nhận diện", amt_str, amt_sub),
+            ("Thời gian hẹn", date_main, date_sub),
+            ("Nén ngữ cảnh đầu vào", f"-{nlp_out['char_savings_pct']}%", f"Chọn Top-4 / {len(FULL_CATALOG_APPS)} ứng dụng"),
         ]
     )
 
-    st.markdown("#### End-to-End 5-Stage Agentic Architecture")
+    with st.expander("Xem chi tiết điểm xếp hạng ứng dụng (TF-IDF Semantic Router)"):
+        df_rank = pd.DataFrame(nlp_out["ranked_rows"]).sort_values("score", ascending=True)
+        fig_r = px.bar(
+            df_rank,
+            x="score",
+            y="name_vi",
+            color="tier",
+            orientation="h",
+            color_discrete_map={"Recommended (Top-K)": "#0068FF", "Secondary": "#CBD5E1"},
+        )
+        fig_r.update_layout(showlegend=True, legend_title_text="", title="Độ tương đồng giữa câu lệnh và từng ứng dụng")
+        fig_r.update_xaxes(title="Điểm tương đồng TF-IDF")
+        fig_r.update_yaxes(title="")
+        st.plotly_chart(_plotly_clean_light(fig_r, height=290), use_container_width=True)
+
+    st.markdown('<div style="border-top:1px solid #E5E7EB;margin:10px 0 14px 0;"></div>', unsafe_allow_html=True)
+
+    # Section 2: Interactive Sandbox Execution (contextual controls only!)
+    st.markdown('<div class="lm-section-title">2. Mô phỏng thực thi & Lá chắn bảo vệ (Sandbox)</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="lm-section-desc">Đối chiếu quá trình gọi API của mô hình khi <b>bật</b> hoặc <b>tắt</b> lá chắn V8 (hãy thử tắt lá chắn để thấy lỗi mất tiền / sai đơn hàng thực tế).</div>',
+        unsafe_allow_html=True,
+    )
+
+    c_scen, c_ctx, c_guard = st.columns([2.2, 1.3, 1.0])
+    with c_scen:
+        selected_scen = st.selectbox(
+            "Tình huống mô phỏng",
+            list(SCENARIO_CATALOG.keys()),
+            key="active_scenario",
+            format_func=lambda k: SCENARIO_UI_META[k]["label"],
+        )
+
+    wallet_val = 120_000
+    rain_val = False
+    with c_ctx:
+        if selected_scen == "fintech_bill_fallback":
+            wallet_val = st.slider(
+                "Số dư Ví điện tử (đ)",
+                min_value=0,
+                max_value=600_000,
+                value=120_000,
+                step=30_000,
+            )
+        elif selected_scen == "conditional_weather_guard":
+            rain_val = st.toggle("Giả lập ngày mai trời mưa", value=False)
+        else:
+            st.markdown(
+                "<div style='padding-top:28px;font-size:0.82rem;color:#4B5563;'>Kiểm tra ràng buộc Schema &amp; ID trước khi gọi API</div>",
+                unsafe_allow_html=True,
+            )
+
+    with c_guard:
+        st.markdown("<div style='height:26px'></div>", unsafe_allow_html=True)
+        guardrail_on = st.toggle("Bật lá chắn V8", value=True)
+
+    sb_res = run_sandbox_scenario(
+        selected_scen,
+        guardrail_enabled=guardrail_on,
+        wallet_balance=wallet_val,
+        tomorrow_rain=rain_val,
+    )
+
+    left_col, right_col = st.columns([1.3, 1.0])
+    with left_col:
+        st.caption(f"Nhật ký gọi công cụ — Số lệnh thực thi: {len(sb_res['executed_calls'])} · Lỗi Soft-Noop: {sb_res['soft_noops']}")
+        for step in sb_res["trace_steps"]:
+            tag_label, tag_cls, note_vi = _step_badge_and_note(step)
+            st.markdown(
+                f"""
+                <div class="lm-step">
+                  <div class="lm-step-top">
+                    <span class="lm-step-idx">Bước {step['step']:02d}</span>
+                    <span class="lm-tag {tag_cls}">{html.escape(tag_label)}</span>
+                  </div>
+                  <div class="lm-call">{html.escape(step['proposed_call'])}</div>
+                  <div class="lm-note">{html.escape(note_vi)}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    with right_col:
+        st.caption("Trạng thái dữ liệu sau khi chạy (Trước -> Sau)")
+        summary_rows = _summarize_state_rows(sb_res)
+        row_html = [
+            f'<div class="lm-state-row"><span class="lm-state-k">{html.escape(k)}</span><span class="lm-state-v">{html.escape(v)}</span></div>'
+            for k, v in summary_rows
+        ]
+        st.markdown(f'<div class="lm-state-card">{"".join(row_html)}</div>', unsafe_allow_html=True)
+
+        with st.expander("Xem JSON trạng thái thô (dành cho kỹ sư)"):
+            st.json(sb_res["final_state"])
+
+# ===========================================================================
+# TAB 2: An toàn Giao dịch
+# ===========================================================================
+with tab_safety:
+    st.markdown('<div class="lm-section-title">Kiểm chứng 5 tình huống rủi ro khi chạy mô hình nhỏ (&lt; 6B)</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="lm-section-desc">Toàn bộ kịch bản bên dưới chạy trực tiếp qua <code>PureSchemaStateTracker</code> và <code>HybridProgramAidedEngine</code> trên CPU ngay khi tải trang.</div>',
+        unsafe_allow_html=True,
+    )
+
+    matrix_raw = run_fintech_chaos_matrix()
+    passed = sum(1 for row in matrix_raw if row["Safe"])
+
+    _render_metric_strip(
+        [
+            ("Tỉ lệ chặn lỗi thực nghiệm", f"{passed}/{len(matrix_raw)} đạt", "Chạy sống từ src/guardrail.py"),
+            ("Độ chính xác chuyển nguồn ví", "100%", "Ví thiếu tiền tự động qua Ngân hàng"),
+            ("Mã nói miệng chưa tra cứu", "0 lọt lưới", "Chặn SP204 / V21 trước khi ghi"),
+            ("Kiểm tra thực đơn trước đặt món", "Bắt buộc (V8)", "Chặn place_order trước get_menu"),
+        ]
+    )
+
+    vi_table = pd.DataFrame(
+        [
+            {
+                "Tình huống": {
+                    "Weather Conditional": "Câu điều kiện thời tiết",
+                    "Spoken ID ('V21')": "Mã đọc miệng ('V21')",
+                    "Food Menu Gate": "Đặt món chưa xem menu",
+                    "Return Status Gate": "Hoàn đơn đã bị hủy",
+                    "Wallet Fallback": "Thanh toán khi ví thiếu tiền",
+                }.get(r["Scenario"], r["Scenario"]),
+                "Lỗ hổng mục tiêu": r["Threat"],
+                "LLM không bảo vệ": r["Raw LLM"],
+                "LifeMate V8": r["V8 Guardrail"],
+                "Trạng thái": "An toàn" if r["Safe"] else "Thất bại",
+            }
+            for r in matrix_raw
+        ]
+    )
+    st.dataframe(vi_table, use_container_width=True, hide_index=True)
+
     st.markdown(
         """
-        <div class="arch-grid">
-          <div class="arch-box">
-            <h4>1. Spoken Audio & ASR</h4>
-            <p>Whisper Turbo CT2 (~0.8B) + noise/hallucination filtering & optional Dual-ASR uncertainty routing.</p>
+        <div class="lm-pillar-grid">
+          <div class="lm-pillar">
+            <h4>1. Tra cứu trước khi ghi</h4>
+            <p>Không cho phép mô hình tự điền mã sản phẩm, mã đơn hay mã bàn từ lời nói người dùng (như V21, SP204) nếu mã đó chưa từng xuất hiện từ lệnh đọc API.</p>
           </div>
-          <div class="arch-box">
-            <h4>2. Preprocessor & Parser</h4>
-            <p>Safe entity alignment + compound Vietnamese numbers ("hai triệu rưỡi") & ISO-8601 +07:00 dates.</p>
+          <div class="lm-pillar">
+            <h4>2. Thứ tự phụ thuộc nghiệp vụ (V8)</h4>
+            <p>Chặn ngay lệnh đặt món <code>food_delivery.place_order</code> nếu chưa đọc <code>get_menu</code>, đồng thời khóa quyền hoàn đơn với đơn đã <code>cancelled</code> hoặc đang giao.</p>
           </div>
-          <div class="arch-box">
-            <h4>3. Semantic Tool Router</h4>
-            <p>Word (1,2)-gram TF-IDF ranks 57 apps in &lt;2ms to guide Qwen3-4B tool selection.</p>
-          </div>
-          <div class="arch-box">
-            <h4>4. Qwen3-4B LoRA Policy</h4>
-            <p>r=128, alpha=256 SFT trained on 2,046 grounded ReAct dialogues up to 9,216 context tokens.</p>
-          </div>
-          <div class="arch-box">
-            <h4>5. V8 Schema & Hybrid Gate</h4>
-            <p>Read-before-write x-ref verification, menu-order dependencies &amp; wallet fallback before execution.</p>
+          <div class="lm-pillar">
+            <h4>3. Lớp bảo vệ tài chính xác định</h4>
+            <p>Kiểm tra số dư thật giữa Ví và Ngân hàng trước khi trừ tiền; nếu giao dịch lỗi do thiếu số dư thì chặn luôn tin nhắn SMS báo thành công giả.</p>
           </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    c1, c2 = st.columns([1.2, 1.0])
-    with c1:
+# ===========================================================================
+# TAB 3: Hiệu năng & Kiến trúc
+# ===========================================================================
+with tab_arch:
+    st.markdown('<div class="lm-section-title">Tối ưu mô hình 4.8B & Huấn luyện 9.216 token trên 1 GPU L4</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="lm-section-desc">Giải bài toán thực tế với ngân sách tham số &lt; 6B, không kết nối mạng ngoài (<code>--network none</code>) và bộ nhớ GPU giới hạn 22,03 GiB.</div>',
+        unsafe_allow_html=True,
+    )
+
+    _render_metric_strip(
+        [
+            ("Public Leaderboard V7", "49.60", "+23.80 điểm so với Baseline 25.80"),
+            ("Ngân sách tham số", "4.8B", "Qwen3-4B (4.0B) + Whisper (0.8B)"),
+            ("Best Eval Loss (V7)", "0.01953", "Hội tụ tại Step 250 (LoRA r=128)"),
+            ("VRAM đỉnh khi train L4", f"{L4_PEAK_CHUNKED_VRAM_GIB} GiB", f"An toàn trong ngưỡng {L4_TOTAL_VRAM_GIB} GiB"),
+        ]
+    )
+
+    c_left, c_right = st.columns(2)
+    with c_left:
         df_prog = pd.DataFrame(SCORE_PROGRESSION)
-        fig = px.line(
+        fig_s = px.line(
             df_prog,
             x="version",
             y="score",
             markers=True,
             text="score",
-            title="Public Leaderboard Score Progression",
+            title="Tiến trình điểm số qua các phiên bản",
             color_discrete_sequence=["#0068FF"],
         )
-        fig.update_traces(line=dict(width=3.5), marker=dict(size=10, color="#00D4FF"), textposition="top center")
-        fig.update_yaxes(range=[20, 56], title="Combined Public Score")
-        fig.update_xaxes(title="Iteration")
-        st.plotly_chart(_plotly_dark_layout(fig, height=285), use_container_width=True)
-
-    with c2:
-        st.markdown("#### Release Milestones & Competition SLA")
-        st.dataframe(
-            pd.DataFrame(SCORE_PROGRESSION)[["version", "score", "milestone"]],
-            use_container_width=True,
-            hide_index=True,
-        )
-        st.info(
-            "Strict Offline Compliance: Fixed seed (42), greedy decoding (`temperature=0`), zero internet (`--network none`), `<= 30s/sample`.",
-            icon="🔒",
-        )
-
-# ---------------------------------------------------------------------------
-# View 2: Interactive ReAct Sandbox
-# ---------------------------------------------------------------------------
-elif active_view == "sandbox":
-    st.subheader("Interactive ReAct Trace & Live Sandbox State Diff")
-    col_pick, col_btn = st.columns([3, 1])
-    with col_pick:
-        scen_id = st.selectbox(
-            "Select Real-World Challenge Failure Case / Scenario",
-            list(SCENARIO_CATALOG.keys()),
-            format_func=lambda k: f"[{SCENARIO_CATALOG[k]['tag']}] {SCENARIO_CATALOG[k]['title']}",
-        )
-    with col_btn:
-        st.write("")
-        run_now = st.button("▶ Run Pipeline", type="primary", use_container_width=True)
-
-    res = run_sandbox_scenario(
-        scen_id,
-        guardrail_enabled=guardrail_mode,
-        wallet_balance=wallet_slider,
-        tomorrow_rain=rain_toggle,
-    )
-
-    st.markdown(f"**User Voice Transcript:** `{res['utterance']}`")
-    _render_kpi_row(
-        [
-            ("Guardrail Mode", "V8 ACTIVE" if guardrail_mode else "OFF (RAW)", "Pre-execution interception"),
-            ("Executed Calls", str(len(res["executed_calls"])), f"Retries / Blocked: {res['guardrail_retries']}"),
-            ("Soft-Noop Failures", str(res["soft_noops"]), "Must stay 0 in production"),
-            ("State Hash Changed", "YES" if res["state_changed"] else "NO", f"{res['initial_hash']} → {res['final_hash']}"),
-        ]
-    )
-
-    left, right = st.columns([1.25, 1.0])
-    with left:
-        st.markdown("#### ReAct Step-by-Step Execution & Guardrail Interceptions")
-        for step in res["trace_steps"]:
-            status = step["status"]
-            css_cls = "step-ok"
-            if status in ("INTERCEPTED", "AUTO_CORRECTED"):
-                css_cls = "step-intercept"
-            elif status in ("SOFT_NOOP", "MISSED"):
-                css_cls = "step-bad"
-            st.markdown(
-                f"""
-                <div class="step-card {css_cls}">
-                  <b>Step {step['step']} [{status}]</b><br/>
-                  <code>{step['proposed_call']}</code><br/>
-                  <span style="color:#CBD5E1;font-size:0.86rem;">{step['guardrail_note']}</span>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-    with right:
-        st.markdown("#### Sandbox Environment State Diff (Before → After)")
-        st.caption("Initial State (`t=0`)")
-        st.json(res["initial_state"])
-        st.caption("Final State (`t=T`)")
-        st.json(res["final_state"])
-
-# ---------------------------------------------------------------------------
-# View 3: FinTech Risk & V8 Safety Lab
-# ---------------------------------------------------------------------------
-elif active_view == "risk":
-    st.subheader("FinTech Transaction Risk & V8 Guardrail Stress-Test Lab")
-    st.caption(
-        "Live adversarial evaluation comparing Raw LLM proposals vs. deterministic V8 `PureSchemaStateTracker` + `HybridProgramAidedEngine` protection."
-    )
-
-    matrix = run_fintech_chaos_matrix()
-    df_matrix = pd.DataFrame(matrix)
-    safe_count = int(df_matrix["Safe"].sum())
-
-    _render_kpi_row(
-        [
-            ("Adversarial Scenarios Passed", f"{safe_count}/{len(df_matrix)}", "100% live Python verification"),
-            ("Financial Fallback Accuracy", "100%", "eWallet 120k < 450k -> Bank"),
-            ("Ungrounded Spoken IDs Blocked", "100%", "Zero V21 / SE7 / SP204 leaks"),
-            ("Menu Prerequisite Gate (V8)", "Active", "Blocks place_order before get_menu"),
-        ]
-    )
-
-    c_left, c_right = st.columns([1.55, 1.0])
-    with c_left:
-        st.markdown("#### Live Chaos-Test Matrix Results")
-        st.dataframe(
-            df_matrix[["Scenario", "Threat", "Raw LLM", "V8 Guardrail"]],
-            use_container_width=True,
-            hide_index=True,
-        )
+        fig_s.update_traces(line=dict(width=2.8), marker=dict(size=8, color="#0068FF"), textposition="top center")
+        fig_s.update_yaxes(range=[20, 56], title="Public Score")
+        fig_s.update_xaxes(title="")
+        st.plotly_chart(_plotly_clean_light(fig_s, height=300), use_container_width=True)
 
     with c_right:
-        df_chart = pd.DataFrame(
-            [
-                {"Pipeline": "Raw Unguarded LLM", "Category": "Prevented Soft-Noop / Bad Write (%)", "Rate": 0.0},
-                {"Pipeline": "V7 Guardrail", "Category": "Prevented Soft-Noop / Bad Write (%)", "Rate": 60.0},
-                {"Pipeline": "V8 Dependency + Status Guardrail", "Category": "Prevented Soft-Noop / Bad Write (%)", "Rate": 100.0},
-            ]
+        df_loss = pd.DataFrame(V7_LOSS_CURVE)
+        fig_l = go.Figure()
+        fig_l.add_trace(
+            go.Scatter(
+                x=df_loss["step"],
+                y=df_loss["train_loss"],
+                mode="lines+markers",
+                name="Train Loss",
+                line=dict(color="#94A3B8", width=2),
+                marker=dict(size=5),
+            )
         )
-        fig_risk = px.bar(
-            df_chart,
-            x="Pipeline",
-            y="Rate",
-            text="Rate",
-            color="Pipeline",
-            title="Adversarial Safety Rate (5 Threat Modes)",
-            color_discrete_sequence=["#EF4444", "#38BDF8", "#10B981"],
+        fig_l.add_trace(
+            go.Scatter(
+                x=df_loss["step"],
+                y=df_loss["val_loss"],
+                mode="lines+markers",
+                name="Validation Loss (201 mẫu)",
+                line=dict(color="#0068FF", width=3),
+                marker=dict(size=6),
+            )
         )
-        fig_risk.update_traces(texttemplate="%{text:.0f}%", textposition="outside")
-        fig_risk.update_yaxes(range=[0, 118], title="Threat Interception Rate (%)")
-        fig_risk.update_layout(showlegend=False)
-        st.plotly_chart(_plotly_dark_layout(fig_risk, height=340), use_container_width=True)
+        fig_l.add_hline(y=V6_BEST_VAL_LOSS, line_dash="dot", line_color="#6B7280", annotation_text=f"Mốc V6 ({V6_BEST_VAL_LOSS})")
+        fig_l.update_layout(
+            title="Hội tụ SFT V7 (9.216 token)",
+            xaxis_title="Step",
+            yaxis_title="Cross-Entropy Loss",
+            legend=dict(
+                x=0.98,
+                y=0.96,
+                xanchor="right",
+                yanchor="top",
+                bgcolor="rgba(255,255,255,0.88)",
+                bordercolor="#E5E7EB",
+                borderwidth=1,
+            ),
+        )
+        fig_l = _plotly_clean_light(fig_l, height=300)
+        fig_l.update_layout(margin=dict(l=36, r=16, t=54, b=36))
+        st.plotly_chart(fig_l, use_container_width=True)
 
-# ---------------------------------------------------------------------------
-# View 4: Semantic Router & Context Budget
-# ---------------------------------------------------------------------------
-elif active_view == "router":
-    st.subheader("TF-IDF Semantic Tool Router & Prompt Context Compression")
-    preset_queries = [
-        "Thanh toán hóa đơn điện bằng ví, nếu không đủ tiền thì chuyển qua ngân hàng",
-        "Đặt một tô phở tái nạm ở quán gần đây rồi đặt xe máy tới lấy",
-        "Mua 200 cổ phiếu FPT nếu giá dưới 130 nghìn",
-        "Kiểm tra đơn hàng vừa đặt rồi tạo yêu cầu trả hàng giúp tôi",
-    ]
-    chosen_preset = st.selectbox("Quick Test Utterance", preset_queries)
-    custom_query = st.text_input(
-        "Or Enter Custom Vietnamese Utterance",
-        value=chosen_preset,
-        key=f"custom_query_{hash(chosen_preset)}",
-    )
-    top_k = st.slider("Recommended Apps (Top-K)", min_value=2, max_value=8, value=4)
-
-    analysis = analyze_vietnamese_utterance(custom_query, top_k=top_k)
-
-    _render_kpi_row(
+    st.markdown("**Kiến trúc xử lý 5 tầng & Tối ưu bộ nhớ**")
+    df_arch = pd.DataFrame(
         [
-            ("Recommended Apps", ", ".join(analysis["recommended_apps"]), f"Top-{top_k} priority prompt tier"),
-            ("Full Schema Prompt", f"{analysis['full_prompt_chars']:,} chars", "All installed tools preserved"),
-            ("Pruned Top-K Prompt", f"{analysis['pruned_prompt_chars']:,} chars", f"-{analysis['char_savings_pct']}% prompt size"),
-            ("Training Cap", "9,216 tokens", "0% truncation vs 8,192 default"),
+            {"Tầng xử lý": "1. Nhận dạng giọng nói (Docker GPU)", "Thành phần": "Whisper Turbo CT2 (~0.8B) + Dual-ASR Fallback", "Tác dụng cốt lõi": "Loại nhiễu âm thanh, tránh ảo giác lặp từ đầu vào"},
+            {"Tầng xử lý": "2. Chuẩn hóa tiếng Việt", "Thành phần": "SafeContextPreprocessor & Number/Date Engine", "Tác dụng cốt lõi": "Dịch số ghép ('hai triệu rưỡi'), giờ tương đối sang ISO +07:00"},
+            {"Tầng xử lý": "3. Định tuyến công cụ", "Thành phần": "SemanticToolRouter (Word 1,2-gram TF-IDF)", "Tác dụng cốt lõi": "Xếp hạng Top-K trong 57 ứng dụng < 2ms, không cần embedding GPU"},
+            {"Tầng xử lý": "4. Lập luận & Gọi API", "Thành phần": "Qwen3-4B + LoRA (r=128) Chunked-CE (0.15 GiB CE)", "Tác dụng cốt lõi": "Giảm tiêu thụ CE Logits từ 5.30 GiB xuống 0.15 GiB ở 9.216 token"},
+            {"Tầng xử lý": "5. Lá chắn thực thi V8", "Thành phần": "PureSchemaStateTracker + HybridEngine", "Tác dụng cốt lõi": "Chặn ID chưa tra cứu, kiểm tra menu & số dư trước khi chạm API"},
         ]
     )
-
-    df_rank = pd.DataFrame(analysis["ranked_rows"])
-    fig_router = px.bar(
-        df_rank.sort_values("score", ascending=True),
-        x="score",
-        y="name_vi",
-        color="tier",
-        orientation="h",
-        title="Live Semantic Similarity Scores Across Installed LifeMate Apps",
-        color_discrete_map={"Recommended (Top-K)": "#0068FF", "Secondary": "#475569"},
-    )
-    fig_router.update_xaxes(title="Sublinear (1,2)-gram TF-IDF Cosine Score")
-    fig_router.update_yaxes(title="Installed Application")
-    st.plotly_chart(_plotly_dark_layout(fig_router, height=430), use_container_width=True)
-
-# ---------------------------------------------------------------------------
-# View 5: L4 Training & Chunked-CE Analytics
-# ---------------------------------------------------------------------------
-elif active_view == "training":
-    st.subheader("NVIDIA L4 (24GB) SFT Training Dynamics & Chunked-CE Memory Profile")
-    _render_kpi_row(
-        [
-            ("Best Checkpoint (V7)", "Step 250", "Epoch 1.95/3 | EarlyStopping"),
-            ("V7 Best Eval Loss", "0.019530", f"Beats V6 Best ({V6_BEST_VAL_LOSS})"),
-            ("Dataset Scale", "2,046 / 201", "+140 weak-app spoken variants"),
-            ("Chunked CE Peak VRAM", f"{L4_PEAK_CHUNKED_VRAM_GIB} GiB", f"Fits safely inside {L4_TOTAL_VRAM_GIB} GiB L4"),
-        ]
-    )
-
-    df_loss = pd.DataFrame(V7_LOSS_CURVE)
-    col_l, col_r = st.columns([1.4, 1.0])
-
-    with col_l:
-        fig_loss = go.Figure()
-        fig_loss.add_trace(go.Scatter(x=df_loss["step"], y=df_loss["train_loss"], mode="lines+markers", name="Training Loss", line=dict(color="#38BDF8", width=2.5)))
-        fig_loss.add_trace(go.Scatter(x=df_loss["step"], y=df_loss["val_loss"], mode="lines+markers", name="Validation Loss (201 held-out)", line=dict(color="#0068FF", width=3.5)))
-        fig_loss.add_hline(y=V6_BEST_VAL_LOSS, line_dash="dash", line_color="#F59E0B", annotation_text=f"V6 Best ({V6_BEST_VAL_LOSS})")
-        fig_loss.add_annotation(x=250, y=0.019530, text="Best V7 Checkpoint (0.01953)", showarrow=True, arrowhead=2, ax=-40, ay=-36, font=dict(color="#34D399"))
-        fig_loss.update_layout(title="V7 Qwen3-4B LoRA Loss Curve (r=128)", xaxis_title="Optimizer Step", yaxis_title="Cross-Entropy Loss")
-        st.plotly_chart(_plotly_dark_layout(fig_loss, height=380), use_container_width=True)
-
-    with col_r:
-        df_vram = pd.DataFrame(
-            [
-                {"Method": "Full Logits CE (~9k tok)", "Logits_Overhead_GiB": 5.30, "Mode": "OOM Trigger (+3.55 GiB spike)"},
-                {"Method": "ChunkedLossTrainer (256 tok)", "Logits_Overhead_GiB": 0.15, "Mode": "Measured Safe CE Overhead"},
-            ]
-        )
-        fig_vram = px.bar(
-            df_vram,
-            x="Method",
-            y="Logits_Overhead_GiB",
-            color="Mode",
-            text="Logits_Overhead_GiB",
-            title="CE Logits VRAM Overhead (9k Context)",
-            color_discrete_map={"OOM Trigger (+3.55 GiB spike)": "#EF4444", "Measured Safe CE Overhead": "#10B981"},
-        )
-        fig_vram.update_traces(texttemplate="%{text:.2f} GiB", textposition="outside")
-        fig_vram.update_yaxes(range=[0, 6.5], title="Logits + CE Memory (GiB)")
-        st.plotly_chart(_plotly_dark_layout(fig_vram, height=380), use_container_width=True)
-
-# ---------------------------------------------------------------------------
-# View 6: Vietnamese Spoken NLP & Voice Playground
-# ---------------------------------------------------------------------------
-elif active_view == "nlp":
-    st.subheader("Vietnamese Spoken Number, Temporal & Voice Input Playground")
-    sample_text = st.text_area(
-        "Test Noisy / Spoken Vietnamese Command",
-        value="Chuyển hai triệu năm trăm nghìn cho chị Lan lúc 8 giờ rưỡi tối mai nhé",
-        height=90,
-    )
-    analysis = analyze_vietnamese_utterance(sample_text, top_k=4)
-
-    _render_kpi_row(
-        [
-            ("Parsed Vietnamese Numeral", f"{analysis['parsed_number']:,}" if analysis["parsed_number"] is not None else "None", "Compound numeral engine"),
-            ("Resolved ISO DateTime", analysis["resolved_iso"] or "N/A", "Relative +07:00 offset"),
-            ("Complete Cancellation Flag", str(analysis["is_cancellation"]), "Hybrid conditional-safe check"),
-            ("Top Routed App", analysis["recommended_apps"][0] if analysis["recommended_apps"] else "N/A", "TF-IDF semantic match"),
-        ]
-    )
-
-    c_audio, c_prep = st.columns(2)
-    with c_audio:
-        st.markdown("#### Optional Voice Recording / WAV Upload")
-        if hasattr(st, "audio_input"):
-            audio_val = st.audio_input("Record Vietnamese command (connected when GPU/ASR backend is attached)")
-            if audio_val is not None:
-                st.audio(audio_val)
-        uploaded_wav = st.file_uploader("Or upload a `.wav` utterance", type=["wav"])
-        if uploaded_wav is not None:
-            st.audio(uploaded_wav)
-
-    with c_prep:
-        st.markdown("#### Safe Context Preprocessor Inspection")
-        st.write("**Cleaned Transcript:**", analysis["cleaned_text"])
-        st.json(analysis["preprocessor_evidence"] or {"status": "No unsafe fuzzy rewrites applied"})
+    st.dataframe(df_arch, use_container_width=True, hide_index=True)

@@ -4,27 +4,23 @@
 ![Base LLM](https://img.shields.io/badge/LLM-Qwen3--4B%20LoRA%20(r%3D128)-orange)
 ![Public Score](https://img.shields.io/badge/Public%20Score-49.60-brightgreen)
 ![Deployment](https://img.shields.io/badge/Docker-Offline%20--network%20none-informational)
-![Streamlit MVP](https://img.shields.io/badge/MVP-Streamlit%20Control%20Tower-FF4B4B)
+![Streamlit MVP](https://img.shields.io/badge/Live%20Demo-Streamlit%20Product%20UI-0068FF)
 
-End-to-end offline Vietnamese **Voice-to-Action AI Agent** built for the **Zalo AI Challenge 2026 (LifeMate Track)** and extended independently into an interactive **Control Tower MVP** & V8 safety guardrail research showcase.
+End-to-end offline Vietnamese **Voice-to-Action AI Agent** built for the **Zalo AI Challenge 2026 (LifeMate Track)** and refined around product minimalism, speed, and deterministic transaction safety (**V8 Guardrails**).
 
 ---
 
-## Interactive MVP & Visual Showcase
+## Interactive Demo & Product Showcase
 
-Launch locally (`streamlit run app.py`) or deploy the lightweight `deploy-streamlit` branch directly on Streamlit Community Cloud (`app.py`):
+Designed with a distraction-free **Zalo Daylight** interface running genuine `src/` Python modules offline on CPU. Launch locally (`streamlit run app.py`) or deploy the lightweight `deploy-streamlit` branch directly on Streamlit Community Cloud (`app.py`):
 
-| Executive Overview & Benchmarks | Interactive ReAct Sandbox (`Before → After`) |
+| 1. Instant Vietnamese Assistant (`Thử nghiệm Trợ lý`) | 2. ReAct Trace & State Sandbox (`Bảo vệ Giao dịch`) |
 |---|---|
-| ![Executive Overview](assets/screenshots/01_overview.png) | ![Interactive Sandbox](assets/screenshots/02_sandbox.png) |
+| ![Vietnamese Assistant](assets/screenshots/01_assistant.png) | ![Interactive Sandbox](assets/screenshots/02_sandbox.png) |
 
-| FinTech Risk & V8 Safety Lab | TF-IDF Semantic Router & Context Budget |
+| 3. FinTech & V8 Safety Verification (`An toàn Giao dịch`) | 4. Architecture & L4 Memory Profile (`Hiệu năng & Kiến trúc`) |
 |---|---|
-| ![FinTech Safety Lab](assets/screenshots/03_risk_lab.png) | ![Semantic Router](assets/screenshots/04_router.png) |
-
-| L4 Training & Chunked-CE VRAM Profile | Spoken Vietnamese NLP & Voice Lab |
-|---|---|
-| ![Training Analytics](assets/screenshots/05_training.png) | ![Vietnamese NLP Lab](assets/screenshots/06_nlp_voice.png) |
+| ![V8 Safety Audit](assets/screenshots/03_safety.png) | ![Architecture & L4 Telemetry](assets/screenshots/04_architecture.png) |
 
 > **Data & IP Compliance Note:** Per the Zalo AI Challenge 2026 regulations, all competition datasets (`train/`, `public_test/`, `private_test/`, audio `.wav` files, and SFT JSONL splits) are strictly excluded from this repository. Clean synthetic scenarios are provided in [`examples/offline_agent_demo.py`](examples/offline_agent_demo.py) and [`tests/`](tests/) so core architecture, guardrails, and Docker conformance checks run cleanly out of the box.
 
@@ -76,10 +72,10 @@ flowchart LR
 ## Repository Structure
 
 ```text
-├── app.py                      # Dark-mode Streamlit Control Tower MVP (6 interactive views)
+├── app.py                      # Minimalist Zalo-inspired Streamlit product UI (3 focused views)
 ├── demo/                       # Sandbox scenarios, chaos-test matrix & benchmark analytics
-├── assets/screenshots/         # Verified UI showcase captures for LinkedIn & documentation
-├── .streamlit/config.toml      # Executive dark-mode theme (#0B0E17 + #0068FF)
+├── assets/screenshots/         # Clean UI showcase captures for LinkedIn & documentation
+├── .streamlit/config.toml      # Clean daylight Zalo theme (#FFFFFF / #F7F8FA / #0068FF)
 ├── src/                        # Core runtime: agent loop, ASR, guardrails, hybrid engine, router
 ├── notebooks/                  # L4 Max Chunked-CE training (V6/V7) & resumable Colab inference
 ├── examples/                   # Standalone zero-dependency offline guardrail showcase demo
@@ -105,7 +101,7 @@ Core guardrail, routing, hybrid-engine logic, offline demo scenarios, and Docker
 # 1. Run unit & regression tests (including V8 guardrails & MVP checks)
 python3 -m unittest discover -s tests -v
 
-# 2. Launch the Interactive Control Tower MVP (Dark Mode)
+# 2. Launch the Minimalist Product UI
 pip install -r requirements-streamlit.txt
 streamlit run app.py
 

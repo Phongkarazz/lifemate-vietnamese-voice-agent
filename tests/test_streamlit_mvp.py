@@ -46,9 +46,14 @@ class TestStreamlitMVPBackend(unittest.TestCase):
     def test_analyze_vietnamese_utterance(self) -> None:
         out = analyze_vietnamese_utterance("Chuyển hai triệu năm trăm nghìn sang ví lúc 8 rưỡi tối mai", top_k=4)
         self.assertEqual(out["parsed_number"], 2500000)
+        self.assertEqual(out["monetary_amount"], 2500000)
         self.assertIsNotNone(out["resolved_iso"])
         self.assertFalse(out["is_cancellation"])
         self.assertGreater(out["char_savings_pct"], 0.0)
+
+        food_out = analyze_vietnamese_utterance("Đặt cho mình 1 tô phở tái nạm ở quán Phở Thìn Sài Gòn nhé.", top_k=4)
+        self.assertIsNone(food_out["monetary_amount"])
+        self.assertEqual(food_out["recommended_apps"][0], "food_delivery")
 
 
 if __name__ == "__main__":
