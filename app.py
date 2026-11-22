@@ -1,7 +1,7 @@
-"""LifeMate Workbench — Offline Vietnamese Voice-to-Action Agent & V9 Safety Console.
+"""LifeMate Workbench — Offline Vietnamese Voice-to-Action Agent & Execution Safety Console.
 
 Runs real `src/` Python modules on CPU (semantic routing, number/datetime normalization,
-V9 schema-first guardrails, and sandbox trace inspection) inside a clean product interface.
+schema-first execution guardrails, and sandbox trace inspection) inside a clean product interface.
 """
 from __future__ import annotations
 
@@ -136,23 +136,12 @@ header[data-testid="stHeader"] {
     gap: 11px;
 }
 .lm-brand-name {
-    font-size: 1.05rem;
+    font-size: 1.08rem;
     font-weight: 700;
     letter-spacing: -0.02em;
     color: var(--ink);
     display: inline-flex;
     align-items: center;
-    gap: 7px;
-}
-.lm-ver-tag {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.70rem;
-    font-weight: 500;
-    color: var(--ink-2);
-    background: var(--bg-subtle);
-    border: 1px solid var(--border);
-    padding: 1px 6px;
-    border-radius: 999px;
 }
 .lm-brand-sub {
     font-size: 0.80rem;
@@ -644,7 +633,7 @@ st.markdown(
       <rect x="17.1" y="10" width="2.4" height="6" rx="1.2" fill="#FFFFFF"/>
     </svg>
     <div>
-      <div class="lm-brand-name">LifeMate <span class="lm-ver-tag">v9.0</span></div>
+      <div class="lm-brand-name">LifeMate</div>
       <div class="lm-brand-sub">Trợ lý điều phối tác vụ tiếng Việt ngoại tuyến</div>
     </div>
   </div>
@@ -697,7 +686,7 @@ with tab_exp:
         rc = turn_res["receipt_card"]
         rc_cls = {"ok": "lm-receipt-ok", "warn": "lm-receipt-warn", "err": "lm-receipt-err"}.get(rc["kind"], "lm-receipt-ok")
         rc_badge_cls = {"ok": "rc-ok", "warn": "rc-warn", "err": "rc-err"}.get(rc["kind"], "rc-ok")
-        mode_caption = "Chế độ bảo vệ V9" if turn_res["guardrail_enabled"] else "Mô hình thô (tắt bảo vệ)"
+        mode_caption = "Đang bật kiểm soát thực thi" if turn_res["guardrail_enabled"] else "Thực thi trực tiếp (không kiểm soát)"
 
         chat_html = (
             '<div class="lm-chat-box">'
@@ -739,7 +728,7 @@ with tab_exp:
         with h_left:
             st.markdown('<div class="lm-sec-head" style="margin-top:2px;">Trình theo dõi thực thi</div>', unsafe_allow_html=True)
         with h_right:
-            st.toggle("Bảo vệ V9", key="workbench_guard")
+            st.toggle("Kiểm soát thực thi", key="workbench_guard")
 
         active_sid = turn_res.get("scenario_id")
         if active_sid == "fintech_bill_fallback":
@@ -842,7 +831,7 @@ with tab_audit:
       <tr>
         <th style="width:22%;">Kịch bản kiểm thử</th>
         <th style="width:31%;">Rủi ro khi dùng mô hình thô</th>
-        <th style="width:36%;">Cơ chế xử lý của LifeMate V9</th>
+        <th style="width:36%;">Cơ chế xử lý</th>
         <th style="width:11%;">Kết quả</th>
       </tr>
     </thead>
@@ -853,7 +842,7 @@ with tab_audit:
         unsafe_allow_html=True,
     )
 
-    with st.expander("Chi tiết cơ chế kiểm soát Schema-First V9"):
+    with st.expander("Nguyên lý xác thực theo JSON Schema"):
         st.markdown(
             "- **Tra cứu trước khi ghi & Tách khóa ngoại:** Chặn mã tự đoán từ giọng nói (V21, SP204) và ngăn nhầm lẫn giữa khóa ngoại (`hotel_id`) với mã đặt chỗ chính (`booking_id`), nhưng vẫn cho phép tái sử dụng đúng ID hợp lệ từ lịch sử hội thoại cũ.\n"
             "- **Ràng buộc suy diễn trực tiếp từ JSON Schema:** Kiểm tra `x-one-of`, giới hạn sức chứa (`max_guests`), khoảng ngày (`check_in < check_out`), thực đơn bắt buộc trước khi đặt món, và điều kiện hoàn đơn.\n"
@@ -958,15 +947,15 @@ with tab_tech:
         fig_l.update_layout(margin=dict(l=34, r=14, t=48, b=32))
         st.plotly_chart(fig_l, use_container_width=True, config={"displayModeBar": False})
 
-    st.markdown('<div class="lm-sec-head">So sánh tiến hóa hậu cuộc thi: V7 → V9</div>', unsafe_allow_html=True)
+    st.markdown('<div class="lm-sec-head">Đánh giá mở rộng hậu cuộc thi (CPU)</div>', unsafe_allow_html=True)
     evo_rows_html = []
     for er in _cached_v9_evolution():
         evo_rows_html.append(
             "<tr>"
             f'<td>{html.escape(er["Hạng mục kiểm thử (Synthetic CPU)"])}</td>'
             f'<td class="num" style="color:#64748B;">{html.escape(er["LLM Thô"])}</td>'
-            f'<td class="num" style="color:#475569;">{html.escape(er["LifeMate V7"])}</td>'
-            f'<td class="num v9col">{html.escape(er["LifeMate V9"])}</td>'
+            f'<td class="num" style="color:#475569;">{html.escape(er["Bản nộp thi (V7)"])}</td>'
+            f'<td class="num v9col">{html.escape(er["Kiến trúc Schema-First"])}</td>'
             "</tr>"
         )
     st.markdown(
@@ -977,8 +966,8 @@ with tab_tech:
       <tr>
         <th style="width:46%;">Hạng mục kiểm thử (Bộ tổng hợp CPU)</th>
         <th class="num" style="width:18%;">LLM Thô</th>
-        <th class="num" style="width:18%;">LifeMate V7</th>
-        <th class="num v9col" style="width:18%;">LifeMate V9</th>
+        <th class="num" style="width:18%;">Bản nộp thi (V7)</th>
+        <th class="num v9col" style="width:18%;">Kiến trúc Schema-First</th>
       </tr>
     </thead>
     <tbody>{"".join(evo_rows_html)}</tbody>
