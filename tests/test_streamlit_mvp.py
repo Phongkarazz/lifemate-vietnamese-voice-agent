@@ -8,6 +8,7 @@ from pathlib import Path
 from demo.scenarios import (
     SCENARIO_CATALOG,
     analyze_vietnamese_utterance,
+    get_v9_evolution_rows,
     run_fintech_chaos_matrix,
     run_sandbox_scenario,
 )
@@ -40,8 +41,12 @@ class TestStreamlitMVPBackend(unittest.TestCase):
             self.assertEqual(r["soft_noops"], 0, f"{sid} had soft_noops under guardrail!")
 
         matrix = run_fintech_chaos_matrix()
-        self.assertEqual(len(matrix), 5)
+        self.assertEqual(len(matrix), 7)
         self.assertTrue(all(row["Safe"] for row in matrix))
+
+        evo_rows = get_v9_evolution_rows()
+        self.assertGreaterEqual(len(evo_rows), 6)
+        self.assertIn("LifeMate V9", evo_rows[0])
 
     def test_analyze_vietnamese_utterance(self) -> None:
         out = analyze_vietnamese_utterance("Chuyển hai triệu năm trăm nghìn sang ví lúc 8 rưỡi tối mai", top_k=4)

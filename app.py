@@ -1,4 +1,4 @@
-"""LifeMate — Minimalist Vietnamese Offline Agent & V8 Safety Workspace.
+"""LifeMate — Minimalist Vietnamese Offline Agent & V9 Schema-First Safety Workspace.
 
 Designed around clean product clarity (zero visual noise, fast response, immediate utility)
 while executing the genuine Python core pipeline (`src/`) on CPU.
@@ -24,11 +24,13 @@ from demo.scenarios import (  # noqa: E402
     FULL_CATALOG_APPS,
     L4_PEAK_CHUNKED_VRAM_GIB,
     L4_TOTAL_VRAM_GIB,
+    PRIVATE_BENCHMARK_METRICS,
     SCENARIO_CATALOG,
     SCORE_PROGRESSION,
     V6_BEST_VAL_LOSS,
     V7_LOSS_CURVE,
     analyze_vietnamese_utterance,
+    get_v9_evolution_rows,
     run_fintech_chaos_matrix,
     run_sandbox_scenario,
 )
@@ -450,6 +452,11 @@ def _plotly_clean_light(fig: go.Figure, height: int = 300) -> go.Figure:
     return fig
 
 
+@st.cache_data
+def _cached_v9_evolution() -> list[dict[str, Any]]:
+    return get_v9_evolution_rows()
+
+
 # ---------------------------------------------------------------------------
 # Minimalist Product Header
 # ---------------------------------------------------------------------------
@@ -461,7 +468,7 @@ st.markdown(
     <div class="lm-brand-sub">Trợ lý điều phối tác vụ tiếng Việt ngoại tuyến — Thực thi đúng lệnh, bảo vệ giao dịch trước khi chạm API</div>
   </div>
   <div class="lm-meta-strip">
-    Public Score <strong>49.60</strong> &nbsp;·&nbsp; Mô hình <strong>4.8B (&lt; 6B)</strong> &nbsp;·&nbsp; Chế độ chạy <strong>CPU Offline</strong>
+    Public <strong>49.60</strong> &nbsp;·&nbsp; Private <strong>36.05 (+9.65 ASR Fix)</strong> &nbsp;·&nbsp; <strong>4.8B (&lt; 6B)</strong> &nbsp;·&nbsp; <strong>V9 Offline</strong>
   </div>
 </div>
 """,
@@ -551,7 +558,7 @@ with tab_try:
     # Section 2: Interactive Sandbox Execution (contextual controls only!)
     st.markdown('<div class="lm-section-title">2. Mô phỏng thực thi & Lá chắn bảo vệ (Sandbox)</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="lm-section-desc">Đối chiếu quá trình gọi API của mô hình khi <b>bật</b> hoặc <b>tắt</b> lá chắn V8 (hãy thử tắt lá chắn để thấy lỗi mất tiền / sai đơn hàng thực tế).</div>',
+        '<div class="lm-section-desc">Đối chiếu quá trình gọi API của mô hình khi <b>bật</b> hoặc <b>tắt</b> lá chắn V9 (hãy thử tắt lá chắn để thấy lỗi mất tiền / sai đơn hàng thực tế).</div>',
         unsafe_allow_html=True,
     )
 
@@ -585,7 +592,7 @@ with tab_try:
 
     with c_guard:
         st.markdown("<div style='height:26px'></div>", unsafe_allow_html=True)
-        guardrail_on = st.toggle("Bật lá chắn V8", value=True)
+        guardrail_on = st.toggle("Bật lá chắn V9", value=True)
 
     sb_res = run_sandbox_scenario(
         selected_scen,
@@ -629,9 +636,9 @@ with tab_try:
 # TAB 2: An toàn Giao dịch
 # ===========================================================================
 with tab_safety:
-    st.markdown('<div class="lm-section-title">Kiểm chứng 5 tình huống rủi ro khi chạy mô hình nhỏ (&lt; 6B)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="lm-section-title">Kiểm chứng 7 tình huống rủi ro &amp; mở rộng không chặn oan (V9)</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="lm-section-desc">Toàn bộ kịch bản bên dưới chạy trực tiếp qua <code>PureSchemaStateTracker</code> và <code>HybridProgramAidedEngine</code> trên CPU ngay khi tải trang.</div>',
+        '<div class="lm-section-desc">Toàn bộ kịch bản bên dưới chạy trực tiếp qua <code>PureSchemaStateTracker (V9)</code> và <code>HybridProgramAidedEngine</code> trên CPU ngay khi tải trang.</div>',
         unsafe_allow_html=True,
     )
 
@@ -642,8 +649,8 @@ with tab_safety:
         [
             ("Tỉ lệ chặn lỗi thực nghiệm", f"{passed}/{len(matrix_raw)} đạt", "Chạy sống từ src/guardrail.py"),
             ("Độ chính xác chuyển nguồn ví", "100%", "Ví thiếu tiền tự động qua Ngân hàng"),
-            ("Mã nói miệng chưa tra cứu", "0 lọt lưới", "Chặn SP204 / V21 trước khi ghi"),
-            ("Kiểm tra thực đơn trước đặt món", "Bắt buộc (V8)", "Chặn place_order trước get_menu"),
+            ("Chặn oan ID hội thoại cũ", "0% (0/5)", "Chuẩn hóa số ít/nhiều & tách khóa ngoại"),
+            ("Ràng buộc nghiệp vụ V9", "Schema-First", "x-one-of, max_guests, lịch ngày & menu"),
         ]
     )
 
@@ -656,10 +663,12 @@ with tab_safety:
                     "Food Menu Gate": "Đặt món chưa xem menu",
                     "Return Status Gate": "Hoàn đơn đã bị hủy",
                     "Wallet Fallback": "Thanh toán khi ví thiếu tiền",
+                    "History Entity Reuse": "Dùng lại ID từ hội thoại cũ",
+                    "Capacity & Date Gate": "Sức chứa & khoảng ngày (V9)",
                 }.get(r["Scenario"], r["Scenario"]),
                 "Lỗ hổng mục tiêu": r["Threat"],
                 "LLM không bảo vệ": r["Raw LLM"],
-                "LifeMate V8": r["V8 Guardrail"],
+                "LifeMate V9": r["V9 Guardrail"],
                 "Trạng thái": "An toàn" if r["Safe"] else "Thất bại",
             }
             for r in matrix_raw
@@ -672,11 +681,11 @@ with tab_safety:
         <div class="lm-pillar-grid">
           <div class="lm-pillar">
             <h4>1. Tra cứu trước khi ghi</h4>
-            <p>Không cho phép mô hình tự điền mã sản phẩm, mã đơn hay mã bàn từ lời nói người dùng (như V21, SP204) nếu mã đó chưa từng xuất hiện từ lệnh đọc API.</p>
+            <p>Không cho phép mô hình tự điền mã từ lời nói (V21, SP204) hoặc nhầm khóa ngoại thành khóa chính, đồng thời cho phép dùng lại đúng ID hợp lệ từ hội thoại cũ.</p>
           </div>
           <div class="lm-pillar">
-            <h4>2. Thứ tự phụ thuộc nghiệp vụ (V8)</h4>
-            <p>Chặn ngay lệnh đặt món <code>food_delivery.place_order</code> nếu chưa đọc <code>get_menu</code>, đồng thời khóa quyền hoàn đơn với đơn đã <code>cancelled</code> hoặc đang giao.</p>
+            <h4>2. Ràng buộc Schema &amp; Thứ tự (V9)</h4>
+            <p>Suy diễn trực tiếp từ JSON Schema: kiểm tra <code>x-one-of</code>, giới hạn <code>max_guests</code>, khoảng ngày <code>check_in &lt; check_out</code>, thực đơn và trạng thái đơn hàng.</p>
           </div>
           <div class="lm-pillar">
             <h4>3. Lớp bảo vệ tài chính xác định</h4>
@@ -699,7 +708,7 @@ with tab_arch:
 
     _render_metric_strip(
         [
-            ("Public Leaderboard V7", "49.60", "+23.80 điểm so với Baseline 25.80"),
+            ("Điểm Public / Private", f"49.60 / {PRIVATE_BENCHMARK_METRICS['final_private']:.2f}", f"+{PRIVATE_BENCHMARK_METRICS['asr_debug_delta']:.2f} Private sau sửa lỗi nạp ASR"),
             ("Ngân sách tham số", "4.8B", "Qwen3-4B (4.0B) + Whisper (0.8B)"),
             ("Best Eval Loss (V7)", "0.01953", "Hội tụ tại Step 250 (LoRA r=128)"),
             ("VRAM đỉnh khi train L4", f"{L4_PEAK_CHUNKED_VRAM_GIB} GiB", f"An toàn trong ngưỡng {L4_TOTAL_VRAM_GIB} GiB"),
@@ -765,14 +774,17 @@ with tab_arch:
         fig_l.update_layout(margin=dict(l=36, r=16, t=54, b=36))
         st.plotly_chart(fig_l, use_container_width=True)
 
+    st.markdown("**Tiến hóa hậu cuộc thi: V7 → V9 (Số liệu đo trực tiếp trên CPU)**")
+    st.dataframe(pd.DataFrame(_cached_v9_evolution()), use_container_width=True, hide_index=True)
+
     st.markdown("**Kiến trúc xử lý 5 tầng & Tối ưu bộ nhớ**")
     df_arch = pd.DataFrame(
         [
-            {"Tầng xử lý": "1. Nhận dạng giọng nói (Docker GPU)", "Thành phần": "Whisper Turbo CT2 (~0.8B) + Dual-ASR Fallback", "Tác dụng cốt lõi": "Loại nhiễu âm thanh, tránh ảo giác lặp từ đầu vào"},
+            {"Tầng xử lý": "1. Nhận dạng giọng nói (Docker GPU)", "Thành phần": "Whisper Turbo CT2 (~0.8B) + Catalog Hotwords", "Tác dụng cốt lõi": "Loại nhiễu âm thanh, sinh từ khóa chuyên ngành tự động cho app mới"},
             {"Tầng xử lý": "2. Chuẩn hóa tiếng Việt", "Thành phần": "SafeContextPreprocessor & Number/Date Engine", "Tác dụng cốt lõi": "Dịch số ghép ('hai triệu rưỡi'), giờ tương đối sang ISO +07:00"},
-            {"Tầng xử lý": "3. Định tuyến công cụ", "Thành phần": "SemanticToolRouter (Word 1,2-gram TF-IDF)", "Tác dụng cốt lõi": "Xếp hạng Top-K trong 57 ứng dụng < 2ms, không cần embedding GPU"},
+            {"Tầng xử lý": "3. Định tuyến & Nén hội thoại", "Thành phần": "History-Aware Router + 24-Turn Compactor", "Tác dụng cốt lõi": "Định tuyến < 2ms, nén hội thoại 24 lượt giảm rác nhưng giữ 100% Entity ID"},
             {"Tầng xử lý": "4. Lập luận & Gọi API", "Thành phần": "Qwen3-4B + LoRA (r=128) Chunked-CE (0.15 GiB CE)", "Tác dụng cốt lõi": "Giảm tiêu thụ CE Logits từ 5.30 GiB xuống 0.15 GiB ở 9.216 token"},
-            {"Tầng xử lý": "5. Lá chắn thực thi V8", "Thành phần": "PureSchemaStateTracker + HybridEngine", "Tác dụng cốt lõi": "Chặn ID chưa tra cứu, kiểm tra menu & số dư trước khi chạm API"},
+            {"Tầng xử lý": "5. Lá chắn thực thi V9", "Thành phần": "PureSchemaStateTracker V9 + HybridEngine", "Tác dụng cốt lõi": "Suy diễn JSON Schema: x-ref, x-one-of, tách khóa ngoại, sức chứa & số dư"},
         ]
     )
     st.dataframe(df_arch, use_container_width=True, hide_index=True)
