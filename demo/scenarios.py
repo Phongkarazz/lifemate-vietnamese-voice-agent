@@ -792,14 +792,26 @@ def get_v9_evolution_rows() -> list[dict[str, Any]]:
     ]
 
 
-def analyze_vietnamese_utterance(utterance: str, top_k: int = 4) -> dict[str, Any]:
+def _now_vn_iso() -> str:
+    """Return current wall-clock time in Vietnam timezone (UTC+7)."""
+    from datetime import datetime, timedelta, timezone
+
+    return datetime.now(timezone(timedelta(hours=7))).replace(microsecond=0).isoformat()
+
+
+def analyze_vietnamese_utterance(
+    utterance: str,
+    top_k: int = 4,
+    current_time_iso: str | None = None,
+) -> dict[str, Any]:
     """Run SemanticToolRouter, prompt budget sizing, number parser, datetime parser, and preprocessor live."""
+    anchor_time = current_time_iso or _now_vn_iso()
     tools_map = get_catalog_tools_map()
     installed_apps = {app: {"tools": [t["name"] for t in meta["tools"]]} for app, meta in FULL_CATALOG_APPS.items()}
     sample = {
         "id": "interactive_probe",
         "context": {
-            "current_time": "2026-11-17T09:00:00+07:00",
+            "current_time": anchor_time,
             "user_profile": {"city": "Hồ Chí Minh", "home_address": "15 Lê Thánh Tôn, Quận 1"},
             "installed_apps": installed_apps,
         },
@@ -835,7 +847,7 @@ def analyze_vietnamese_utterance(utterance: str, top_k: int = 4) -> dict[str, An
     cleaned_text, evidence = prep.preprocess_with_evidence(utterance, sample)
     parsed_num = extract_vietnamese_amount(utterance)
     monetary_amt = extract_monetary_amount(utterance)
-    resolved_iso = VietnameseRelativeDateTimeEngine.resolve_datetime_iso(utterance, "2026-11-17T09:00:00+07:00")
+    resolved_iso = VietnameseRelativeDateTimeEngine.resolve_datetime_iso(utterance, anchor_time)
     is_cancel = HybridProgramAidedEngine.is_complete_cancellation(utterance)
 
     full_prompt = build_allowed_tools_block(sample, tools_map, user_query=utterance, router=router, catalog_apps_map=FULL_CATALOG_APPS)
@@ -1114,8 +1126,10 @@ def run_workbench_turn(
     guardrail_enabled: bool = True,
     wallet_balance: int = 120_000,
     tomorrow_rain: bool = False,
+    current_time_iso: str | None = None,
 ) -> dict[str, Any]:
     """Unified CPU backend for the split-pane LifeMate Workbench (presets + arbitrary Vietnamese text)."""
+    anchor_time = current_time_iso or _now_vn_iso()
     text = (utterance or "").strip() or SCENARIO_CATALOG["fintech_bill_fallback"]["utterance"]
     matched_sid: str | None = None
     for sid, cfg in SCENARIO_CATALOG.items():
@@ -1125,7 +1139,7 @@ def run_workbench_turn(
     if matched_sid is None and scenario_hint in SCENARIO_CATALOG and text == SCENARIO_CATALOG[scenario_hint]["utterance"].strip():
         matched_sid = scenario_hint
 
-    nlp = analyze_vietnamese_utterance(text, top_k=4)
+    nlp = analyze_vietnamese_utterance(text, top_k=4, current_time_iso=anchor_time)
 
     if matched_sid is not None:
         sb = run_sandbox_scenario(
@@ -1173,7 +1187,7 @@ def run_workbench_turn(
     installed_sample = {
         "id": "custom_workbench",
         "context": {
-            "current_time": "2026-11-17T09:00:00+07:00",
+            "current_time": anchor_time,
             "installed_apps": {a: {"tools": [t["name"] for t in m["tools"]]} for a, m in FULL_CATALOG_APPS.items()},
         },
         "history": [],

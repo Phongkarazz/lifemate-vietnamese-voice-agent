@@ -500,6 +500,28 @@ class TestV9SchemaGuardrails(unittest.TestCase):
             ),
             "2026-11-18T08:00:00+07:00",
         )
+        # Supports spoken '<hour> rưỡi' without 'giờ' while ignoring currency phrases like 'hai triệu rưỡi'
+        self.assertEqual(
+            VietnameseRelativeDateTimeEngine.resolve_datetime_iso(
+                "Đặt cho mình 1 tô phở tái nạm, giá 20000, sáu rưỡi ngày mai",
+                "2026-11-22T14:28:00+07:00",
+            ),
+            "2026-11-23T06:30:00+07:00",
+        )
+        self.assertEqual(
+            VietnameseRelativeDateTimeEngine.resolve_datetime_iso(
+                "Đặt bàn sáu rưỡi tối mai",
+                "2026-11-22T14:28:00+07:00",
+            ),
+            "2026-11-23T18:30:00+07:00",
+        )
+        self.assertEqual(
+            VietnameseRelativeDateTimeEngine.resolve_datetime_iso(
+                "Chuyển hai triệu rưỡi ngày mai nhé",
+                "2026-11-22T14:28:00+07:00",
+            ),
+            "2026-11-23T09:00:00+07:00",
+        )
 
 
 if __name__ == "__main__":
