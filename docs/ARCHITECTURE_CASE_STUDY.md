@@ -1,6 +1,6 @@
 # LifeMate Architecture Case Study — Offline Vietnamese Voice-to-Action Agent (`< 6B`)
 
-**Author:** Hà Sỹ Phong (FTU HCMC) · **Codebase:** [`lifemate-vietnamese-voice-agent`](https://github.com/Phongkarazz/lifemate-vietnamese-voice-agent)
+**Author:** Hà Sỹ Phong (FTU HCMC) · **Codebase:** [`lifemate-vietnamese-voice-agent`](https://github.com/Phongkarazz/lifemate-vietnamese-voice-agent) · **Live Workbench:** [`lifemate-vietnamese-voice-agent.streamlit.app`](https://lifemate-vietnamese-voice-agent.streamlit.app/)
 
 ---
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import time
 from typing import Any
 
 from src.action_triage import ActionTriageBarrier
@@ -61,7 +62,7 @@ FULL_CATALOG_APPS: dict[str, dict[str, Any]] = {
         "id": "ewallet",
         "name_vi": "Ví điện tử",
         "group": "finance",
-        "description": "Kiểm tra số dư, nạp rút và chuyển tiền ví điện tử",
+        "description": "Chuyển tiền gửi tiền nghìn triệu đồng nạp rút và kiểm tra số dư ví điện tử",
         "tools": [
             {"name": "ewallet.get_balance", "kind": "read", "parameters": {"type": "object", "properties": {}}},
             {
@@ -106,7 +107,7 @@ FULL_CATALOG_APPS: dict[str, dict[str, Any]] = {
         "id": "banking",
         "name_vi": "Ngân hàng",
         "group": "finance",
-        "description": "Xem số dư tài khoản ngân hàng và chuyển khoản",
+        "description": "Chuyển khoản ngân hàng chuyển tiền nghìn triệu đồng xem số dư tài khoản",
         "tools": [
             {"name": "banking.get_balance", "kind": "read", "parameters": {"type": "object", "properties": {}}},
             {
@@ -228,7 +229,7 @@ FULL_CATALOG_APPS: dict[str, dict[str, Any]] = {
         "id": "weather",
         "name_vi": "Thời tiết",
         "group": "utilities",
-        "description": "Xem dự báo thời tiết mưa nắng nhiệt độ hôm nay ngày mai",
+        "description": "Xem dự báo thời tiết mưa nắng nhiệt độ độ ẩm gió",
         "tools": [
             {"name": "weather.get_forecast", "kind": "read", "parameters": {"type": "object", "properties": {"days": {"type": "integer"}}}},
         ],
@@ -854,3 +855,546 @@ def analyze_vietnamese_utterance(utterance: str, top_k: int = 4) -> dict[str, An
         "char_savings_pct": round((1 - len(pruned_prompt) / max(1, len(full_prompt))) * 100, 1),
         "preprocessor_evidence": evidence,
     }
+
+
+def _fmt_vnd_vi(amount: int | float | None) -> str:
+    if amount is None:
+        return "Không có"
+    return f"{int(amount):,}".replace(",", ".") + " đ"
+
+
+def _fmt_iso_vi(iso_str: str | None) -> str:
+    if not iso_str:
+        return "Không có lịch hẹn"
+    from datetime import datetime
+
+    try:
+        dt = datetime.fromisoformat(iso_str)
+        return dt.strftime("%d/%m/%Y · %H:%M")
+    except ValueError:
+        return iso_str
+
+
+def _parse_proposed_call(raw_call: str) -> tuple[str, dict[str, Any]]:
+    if "(" in raw_call and raw_call.endswith(")"):
+        tool_name, raw_args = raw_call[:-1].split("(", 1)
+        try:
+            parsed = json.loads(raw_args)
+            if isinstance(parsed, dict):
+                return tool_name.strip(), parsed
+        except Exception:
+            pass
+    return raw_call.strip(), {}
+
+
+def _step_to_vi(step: dict[str, Any], scenario_id: str) -> dict[str, Any]:
+    raw_status = step["status"]
+    raw_note = str(step.get("guardrail_note", ""))
+    tool_name, args = _parse_proposed_call(str(step.get("proposed_call", "")))
+
+    status_map = {
+        "EXECUTED": ("ok", "Đã thực thi"),
+        "EXECUTED_UNCHECKED": ("warn", "Chạy không kiểm tra"),
+        "INTERCEPTED": ("warn", "Đã chặn kịp thời"),
+        "AUTO_CORRECTED": ("warn", "Đổi nguồn tiền an toàn"),
+        "STOPPED_BY_CONDITION": ("ok", "Dừng đúng điều kiện"),
+        "SOFT_NOOP": ("err", "Thất bại nghiệp vụ"),
+        "MISSED": ("err", "Bỏ sót yêu cầu"),
+    }
+    kind, status_vi = status_map.get(raw_status, ("warn", raw_status))
+
+    note_vi = "Đã xác thực schema và trạng thái hệ thống."
+    if raw_status == "INTERCEPTED":
+        if "food_delivery.get_menu" in raw_note:
+            note_vi = "Chặn đặt món vì chưa đọc thực đơn (food_delivery.get_menu) để lấy mã món thật."
+        elif "grocery.search" in raw_note:
+            note_vi = "Chặn mã nói miệng 'SP204' vì chưa tra mã sản phẩm thật qua grocery.search."
+        else:
+            note_vi = raw_note
+    elif raw_status == "AUTO_CORRECTED":
+        note_vi = "Ví điện tử không đủ số dư, tự động chuyển sang tài khoản ngân hàng."
+    elif raw_status == "STOPPED_BY_CONDITION":
+        note_vi = "Dự báo ngày mai không mưa nên dừng lại, không tạo nhắc nhở thừa."
+    elif raw_status == "SOFT_NOOP":
+        if "Insufficient ewallet balance" in raw_note:
+            note_vi = "Giao dịch thất bại vì số dư ví không đủ 450.000 đ."
+        elif "get_menu" in raw_note:
+            note_vi = "Thất bại vì tự đoán mã món không tồn tại trong thực đơn."
+        elif "SP204" in raw_note:
+            note_vi = "Thất bại vì hệ thống không tìm thấy mã tự chế 'SP204'."
+        else:
+            note_vi = "Lệnh thất bại khi chạm môi trường thực thi."
+    elif raw_status == "MISSED":
+        note_vi = "Bộ lọc cũ hiểu nhầm câu điều kiện thành lệnh hủy nên dừng luôn ở bước 0."
+    elif raw_status == "EXECUTED_UNCHECKED":
+        note_vi = "Thực thi trực tiếp vì đã tắt lớp bảo vệ V9."
+
+    return {
+        "idx": int(step["step"]),
+        "tool": tool_name,
+        "args": args,
+        "status_kind": kind,
+        "status_vi": status_vi,
+        "note_vi": note_vi,
+    }
+
+
+def _preset_state_rows_vi(res: dict[str, Any], wallet_balance: int) -> list[dict[str, str]]:
+    st = res["final_state"]
+    rows: list[dict[str, str]] = []
+    if "bills" in st and st["bills"]:
+        bill_st = st["bills"][0].get("status", "")
+        paid_map = {
+            "unpaid": ("Chưa thanh toán", "warn"),
+            "paid_via_ewallet": ("Đã thanh toán", "ok"),
+            "paid_via_bank": ("Đã thanh toán", "ok"),
+        }
+        val_vi, kind = paid_map.get(bill_st, (bill_st, "neutral"))
+        src_vi = "Qua Ví điện tử" if bill_st == "paid_via_ewallet" else ("Qua Ngân hàng" if bill_st == "paid_via_bank" else "Còn nợ 450.000 đ")
+        rows.append({"label": "Hóa đơn EVN HCMC", "value": val_vi, "delta": src_vi, "delta_kind": kind})
+    if "ewallet_balance" in st:
+        cur = int(st["ewallet_balance"])
+        diff = cur - int(wallet_balance)
+        delta_str = f"{_fmt_vnd_vi(diff)}" if diff < 0 else "Không thay đổi"
+        rows.append({"label": "Số dư Ví điện tử", "value": _fmt_vnd_vi(cur), "delta": delta_str, "delta_kind": "neutral" if diff == 0 else "ok"})
+    if "bank_balance" in st:
+        cur_b = int(st["bank_balance"])
+        diff_b = cur_b - 5_000_000
+        delta_b = f"{diff_b:,}".replace(",", ".") + " đ" if diff_b < 0 else "Không thay đổi"
+        rows.append({"label": "Tài khoản Ngân hàng", "value": _fmt_vnd_vi(cur_b), "delta": delta_b, "delta_kind": "ok" if diff_b < 0 else "neutral"})
+    if "sent_sms" in st:
+        sms_cnt = len(st["sent_sms"])
+        rows.append({
+            "label": "Tin nhắn xác nhận",
+            "value": f"{sms_cnt} tin đã gửi" if sms_cnt else "0 tin",
+            "delta": "Đã báo Anh Minh" if sms_cnt else "Chưa gửi",
+            "delta_kind": "err" if (sms_cnt and st.get("bills", [{}])[0].get("status") == "unpaid") else ("ok" if sms_cnt else "neutral"),
+        })
+    if "food_orders" in st:
+        n_ord = len(st["food_orders"])
+        rows.append({"label": "Đơn giao đồ ăn", "value": f"{n_ord} đơn hợp lệ" if n_ord else "Chưa tạo đơn", "delta": "Đã xác thực mã món" if n_ord else "Bị từ chối", "delta_kind": "ok" if n_ord else "err"})
+    if "cart" in st:
+        n_cart = len(st["cart"])
+        rows.append({"label": "Giỏ hàng siêu thị", "value": f"{n_cart} sản phẩm" if n_cart else "Trống", "delta": "Đã thêm prod_demo_01" if n_cart else "Lỗi mã sản phẩm", "delta_kind": "ok" if n_cart else "err"})
+    if "reminders" in st:
+        n_rem = len(st["reminders"])
+        rows.append({"label": "Nhắc nhở đã tạo", "value": f"{n_rem} nhắc nhở" if n_rem else "0 nhắc nhở", "delta": "Đúng điều kiện thời tiết", "delta_kind": "ok" if res["guardrail_enabled"] else "err"})
+    return rows
+
+
+def _build_preset_reply(
+    sid: str,
+    res: dict[str, Any],
+    *,
+    guardrail_enabled: bool,
+    wallet_balance: int,
+    tomorrow_rain: bool,
+) -> tuple[str, dict[str, Any]]:
+    st = res["final_state"]
+    if sid == "fintech_bill_fallback":
+        bill_status = st.get("bills", [{}])[0].get("status", "unpaid")
+        if guardrail_enabled and wallet_balance < 450_000:
+            return (
+                f"Ví điện tử chỉ còn {_fmt_vnd_vi(wallet_balance)} (thiếu so với hóa đơn 450.000 đ). Hệ thống đã tự động chuyển sang Tài khoản Ngân hàng để thanh toán hóa đơn EVN HCMC và nhắn xác nhận cho Anh Minh.",
+                {
+                    "kind": "warn",
+                    "badge": "Đổi nguồn tiền an toàn",
+                    "title": "Hóa đơn EVN HCMC · 450.000 đ",
+                    "subtitle": "Thanh toán qua Ngân hàng · Số dư còn lại " + _fmt_vnd_vi(st.get("bank_balance")),
+                },
+            )
+        if guardrail_enabled:
+            return (
+                f"Số dư Ví điện tử ({_fmt_vnd_vi(wallet_balance)}) đủ để thanh toán. Đã trả 450.000 đ cho hóa đơn EVN HCMC qua ví và nhắn xác nhận cho Anh Minh.",
+                {
+                    "kind": "ok",
+                    "badge": "Hoàn tất giao dịch",
+                    "title": "Hóa đơn EVN HCMC · 450.000 đ",
+                    "subtitle": "Thanh toán qua Ví điện tử · Đã gửi SMS cho Anh Minh",
+                },
+            )
+        if bill_status == "unpaid":
+            return (
+                f"Sự cố thực tế khi tắt bảo vệ: Mô hình cố trừ 450.000 đ từ Ví điện tử ({_fmt_vnd_vi(wallet_balance)}) nên giao dịch THẤT BẠI, nhưng vẫn tiếp tục gửi SMS xác nhận giả 'Đã thanh toán' cho Anh Minh.",
+                {
+                    "kind": "err",
+                    "badge": "Cảnh báo mất an toàn",
+                    "title": "Hóa đơn vẫn CHƯA được thanh toán",
+                    "subtitle": "Đã gửi nhầm 1 SMS báo thành công giả cho Anh Minh",
+                },
+            )
+        return (
+            "Đã gọi thanh toán qua Ví điện tử và gửi tin nhắn xác nhận (bỏ qua bước kiểm tra điều kiện số dư).",
+            {
+                "kind": "warn",
+                "badge": "Chạy không qua lá chắn",
+                "title": "Hóa đơn EVN HCMC · 450.000 đ",
+                "subtitle": "Thực thi trực tiếp không qua kiểm tra điều kiện",
+            },
+        )
+
+    if sid == "v8_food_menu_dependency":
+        if guardrail_enabled:
+            return (
+                "Lá chắn V9 đã chặn bước đặt món nhảy cóc, buộc tra cứu thực đơn tại Phở Thìn Sài Gòn để lấy đúng mã món thật rồi mới đặt 1 tô phở tái nạm thành công.",
+                {
+                    "kind": "ok",
+                    "badge": "Đặt món thành công",
+                    "title": "Phở tái nạm đặc biệt (1 tô) · 65.000 đ",
+                    "subtitle": "Phở Thìn Sài Gòn · Đã kiểm chứng mã món từ thực đơn",
+                },
+            )
+        return (
+            "Mô hình bỏ qua bước đọc thực đơn và tự đoán mã món không có trong hệ thống ('pho_tai_nam_guess'), khiến đơn đặt phở bị từ chối.",
+            {
+                "kind": "err",
+                "badge": "Đơn hàng thất bại",
+                "title": "Chưa đặt được đơn Phở Thìn Sài Gòn",
+                "subtitle": "Bị từ chối vì dùng mã món tự đoán trước khi xem thực đơn",
+            },
+        )
+
+    if sid == "spoken_id_read_before_write":
+        if guardrail_enabled:
+            return (
+                "Lá chắn V9 đã chặn mã nói miệng 'SP204', tự động tìm sản phẩm Yến mạch hữu cơ hộp 500g trong danh mục và thêm 2 hộp vào giỏ hàng.",
+                {
+                    "kind": "ok",
+                    "badge": "Đã thêm vào giỏ",
+                    "title": "Yến mạch hữu cơ hộp 500g × 2",
+                    "subtitle": "Đã thay mã nói miệng 'SP204' bằng mã hệ thống thật",
+                },
+            )
+        return (
+            "Mô hình tin ngay mã nói miệng 'SP204' từ câu nói mà không tra cứu danh mục siêu thị, khiến lệnh thêm giỏ hàng bị lỗi.",
+            {
+                "kind": "err",
+                "badge": "Thao tác bị từ chối",
+                "title": "Giỏ hàng siêu thị vẫn trống",
+                "subtitle": "Mã 'SP204' không tồn tại trong hệ thống",
+            },
+        )
+
+    # conditional_weather_guard
+    if guardrail_enabled:
+        if tomorrow_rain:
+            return (
+                "Dự báo ngày mai CÓ MƯA (27°C). Hệ thống đã tạo nhắc nhở 'Mang áo mưa' lúc 08:00 sáng mai.",
+                {
+                    "kind": "ok",
+                    "badge": "Đã tạo nhắc nhở",
+                    "title": "Mang áo mưa · 08:00 ngày mai",
+                    "subtitle": "Điều kiện thời tiết thỏa mãn (có mưa)",
+                },
+            )
+        return (
+            "Đã kiểm tra dự báo ngày mai trời KHÔNG MƯA (32°C), nên hệ thống dừng lại an toàn và không tạo nhắc nhở thừa.",
+            {
+                "kind": "ok",
+                "badge": "Dừng đúng điều kiện",
+                "title": "Không tạo nhắc nhở mới",
+                "subtitle": "Dự báo ngày mai trời nắng (32°C) — giữ nguyên lịch cũ",
+            },
+        )
+    return (
+        "Lỗi logic cũ: Cụm 'không mưa rồi thì cứ để nguyên' bị nhận nhầm thành lệnh hủy toàn bộ yêu cầu ngay từ bước đầu, bỏ sót cả bước kiểm tra thời tiết.",
+        {
+            "kind": "err",
+            "badge": "Bỏ sót yêu cầu",
+            "title": "Không kiểm tra dự báo thời tiết",
+            "subtitle": "Dừng nhầm ở bước 0 vì hiểu sai câu điều kiện",
+        },
+    )
+
+
+def run_workbench_turn(
+    utterance: str,
+    *,
+    scenario_hint: str | None = None,
+    guardrail_enabled: bool = True,
+    wallet_balance: int = 120_000,
+    tomorrow_rain: bool = False,
+) -> dict[str, Any]:
+    """Unified CPU backend for the split-pane LifeMate Workbench (presets + arbitrary Vietnamese text)."""
+    text = (utterance or "").strip() or SCENARIO_CATALOG["fintech_bill_fallback"]["utterance"]
+    matched_sid: str | None = None
+    for sid, cfg in SCENARIO_CATALOG.items():
+        if text == cfg["utterance"].strip():
+            matched_sid = sid
+            break
+    if matched_sid is None and scenario_hint in SCENARIO_CATALOG and text == SCENARIO_CATALOG[scenario_hint]["utterance"].strip():
+        matched_sid = scenario_hint
+
+    nlp = analyze_vietnamese_utterance(text, top_k=4)
+
+    if matched_sid is not None:
+        sb = run_sandbox_scenario(
+            matched_sid,
+            guardrail_enabled=guardrail_enabled,
+            wallet_balance=wallet_balance,
+            tomorrow_rain=tomorrow_rain,
+        )
+        reply, card = _build_preset_reply(
+            matched_sid,
+            sb,
+            guardrail_enabled=guardrail_enabled,
+            wallet_balance=wallet_balance,
+            tomorrow_rain=tomorrow_rain,
+        )
+        steps = [_step_to_vi(s, matched_sid) for s in sb["trace_steps"]]
+        state_rows = _preset_state_rows_vi(sb, wallet_balance=wallet_balance)
+        return {
+            "mode": "preset",
+            "scenario_id": matched_sid,
+            "utterance": text,
+            "guardrail_enabled": guardrail_enabled,
+            "assistant_reply": reply,
+            "receipt_card": card,
+            "steps": steps,
+            "state_rows": state_rows,
+            "initial_hash": sb["initial_hash"],
+            "final_hash": sb["final_hash"],
+            "final_state": sb["final_state"],
+            "soft_noops": sb["soft_noops"],
+            "guardrail_retries": sb["guardrail_retries"],
+            "nlp": nlp,
+        }
+
+    # Custom user-typed Vietnamese utterance: run live routing, parsing, and schema pre-check
+    rec_apps = nlp["recommended_apps"]
+    top_app = rec_apps[0] if rec_apps else "reminders"
+    top_meta = FULL_CATALOG_APPS.get(top_app, {"name_vi": top_app, "tools": []})
+    top_name_vi = top_meta.get("name_vi", top_app)
+    mon_amt = nlp.get("monetary_amount")
+    iso_dt = nlp.get("resolved_iso")
+    is_cancel = nlp.get("is_cancellation")
+
+    tools_map = get_catalog_tools_map()
+    installed_sample = {
+        "id": "custom_workbench",
+        "context": {
+            "current_time": "2026-11-17T09:00:00+07:00",
+            "installed_apps": {a: {"tools": [t["name"] for t in m["tools"]]} for a, m in FULL_CATALOG_APPS.items()},
+        },
+        "history": [],
+    }
+    tracker = PureSchemaStateTracker(installed_sample, text, tools_map)
+
+    custom_steps: list[dict[str, Any]] = []
+    app_tools = top_meta.get("tools", [])
+    read_tool = next((t for t in app_tools if t.get("kind") == "read"), None)
+    write_tool = next((t for t in app_tools if t.get("kind") == "write"), None)
+
+    if is_cancel:
+        custom_steps.append({
+            "idx": 1,
+            "tool": "hybrid_engine.cancellation_gate",
+            "args": {"action": "stop"},
+            "status_kind": "ok",
+            "status_vi": "Dừng an toàn",
+            "note_vi": "Nhận diện câu tự hủy lệnh hoàn toàn; không thực thi thay đổi dữ liệu.",
+        })
+        reply = "Mình hiểu bạn muốn dừng và giữ nguyên hiện trạng. Hệ thống không gọi thao tác ghi nào."
+        card = {
+            "kind": "ok",
+            "badge": "Đã hủy theo ý định",
+            "title": "Giữ nguyên trạng thái hệ thống",
+            "subtitle": "Không thực hiện giao dịch hoặc thay đổi nào",
+        }
+    else:
+        if read_tool:
+            custom_steps.append({
+                "idx": 1,
+                "tool": read_tool["name"],
+                "args": {},
+                "status_kind": "ok",
+                "status_vi": "Định tuyến & tra cứu",
+                "note_vi": f"Ưu tiên nhóm công cụ '{top_name_vi}' và giảm {nlp['char_savings_pct']}% ngữ cảnh schema.",
+            })
+        if write_tool:
+            sample_args: dict[str, Any] = {}
+            props = (write_tool.get("parameters") or {}).get("properties") or {}
+            for pk, pspec in props.items():
+                if pspec.get("x-ref"):
+                    sample_args[pk] = "UNVERIFIED_INPUT"
+                elif pk == "amount" and mon_amt is not None:
+                    sample_args[pk] = mon_amt
+                elif pk == "time" and iso_dt is not None:
+                    sample_args[pk] = iso_dt
+            if guardrail_enabled:
+                pre_err = tracker.check_pre_execution(write_tool["name"], sample_args)
+                if pre_err:
+                    custom_steps.append({
+                        "idx": len(custom_steps) + 1,
+                        "tool": write_tool["name"],
+                        "args": sample_args,
+                        "status_kind": "warn",
+                        "status_vi": "Bắt buộc tra ID trước",
+                        "note_vi": "Lá chắn V9 yêu cầu lấy đúng mã hệ thống từ bước đọc trước khi ghi.",
+                    })
+                else:
+                    custom_steps.append({
+                        "idx": len(custom_steps) + 1,
+                        "tool": write_tool["name"],
+                        "args": sample_args,
+                        "status_kind": "ok",
+                        "status_vi": "Sẵn sàng thực thi",
+                        "note_vi": "Đã kiểm tra đầy đủ định dạng và ràng buộc schema V9.",
+                    })
+            else:
+                custom_steps.append({
+                    "idx": len(custom_steps) + 1,
+                    "tool": write_tool["name"],
+                    "args": sample_args,
+                    "status_kind": "warn",
+                    "status_vi": "Chạy trực tiếp",
+                    "note_vi": "Đang tắt bảo vệ V9 — tham số sẽ đi thẳng tới API.",
+                })
+
+        details = []
+        if mon_amt is not None:
+            details.append(f"số tiền {_fmt_vnd_vi(mon_amt)}")
+        if iso_dt is not None:
+            details.append(f"thời điểm {_fmt_iso_vi(iso_dt)}")
+        detail_txt = f" ({', '.join(details)})" if details else ""
+        reply = (
+            f"Đã phân tích câu lệnh và định tuyến vào nhóm «{top_name_vi}»{detail_txt}. "
+            + ("Lá chắn V9 đang kích hoạt để xác thực mã thực thể và ràng buộc schema trước khi ghi." if guardrail_enabled else "Đang chạy ở chế độ không kiểm tra trước.")
+        )
+        card = {
+            "kind": "ok" if guardrail_enabled else "warn",
+            "badge": "Phân tích trực tiếp V9" if guardrail_enabled else "Chế độ mô hình thô",
+            "title": f"Ứng dụng: {top_name_vi}",
+            "subtitle": f"Số tiền: {_fmt_vnd_vi(mon_amt)} · Lịch hẹn: {_fmt_iso_vi(iso_dt)}",
+        }
+
+    custom_state_rows = [
+        {"label": "Ứng dụng ưu tiên", "value": top_name_vi, "delta": f"Tiết kiệm {nlp['char_savings_pct']}% prompt", "delta_kind": "ok"},
+        {"label": "Số tiền nhận diện", "value": _fmt_vnd_vi(mon_amt), "delta": "Tách từ tiếng Việt" if mon_amt else "Không có", "delta_kind": "ok" if mon_amt else "neutral"},
+        {"label": "Mốc thời gian", "value": _fmt_iso_vi(iso_dt), "delta": "ISO +07:00" if iso_dt else "Không hẹn giờ", "delta_kind": "ok" if iso_dt else "neutral"},
+    ]
+    sim_state = {
+        "routed_app": top_app,
+        "recommended_top_k": rec_apps,
+        "monetary_amount": mon_amt,
+        "resolved_datetime": iso_dt,
+        "guardrail_v9": guardrail_enabled,
+    }
+    sim_hash = hashlib.sha256(json.dumps(sim_state, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:12]
+    return {
+        "mode": "custom",
+        "scenario_id": None,
+        "utterance": text,
+        "guardrail_enabled": guardrail_enabled,
+        "assistant_reply": reply,
+        "receipt_card": card,
+        "steps": custom_steps,
+        "state_rows": custom_state_rows,
+        "initial_hash": "000000000000",
+        "final_hash": sim_hash,
+        "final_state": sim_state,
+        "soft_noops": 0,
+        "guardrail_retries": 0,
+        "nlp": nlp,
+    }
+
+
+def run_audit_suite_vi() -> dict[str, Any]:
+    """Run all 7 real guard checks with timing and return 100% Vietnamese audit report rows."""
+    t0 = time.perf_counter()
+    raw_rows = run_fintech_chaos_matrix()
+    elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 2)
+
+    vi_catalog = {
+        "Weather Conditional": {
+            "title": "Câu điều kiện thời tiết",
+            "risk": "Hiểu nhầm vế phủ định cuối câu thành hủy lệnh ngay bước 0 (bỏ sót kiểm tra dự báo)",
+            "v9_handling": "Kiểm tra thời tiết trước, chỉ tạo nhắc nhở khi đúng điều kiện mưa",
+            "code_ref": "HybridProgramAidedEngine",
+        },
+        "Spoken ID ('V21')": {
+            "title": "Mã nói miệng chưa tra cứu",
+            "risk": "Tự điền mã đơn 'V21' từ lời nói rồi gọi hoàn đơn ngay, gây lỗi không tìm thấy ID",
+            "v9_handling": "Chặn thao tác ghi và yêu cầu tra danh sách đơn hàng trước",
+            "code_ref": "PureSchemaStateTracker",
+        },
+        "Food Menu Gate": {
+            "title": "Đặt món bỏ qua thực đơn",
+            "risk": "Nhảy cóc gọi đặt đồ ăn khi chưa đọc menu khiến hệ thống từ chối sai mã món",
+            "v9_handling": "Bắt buộc gọi đọc thực đơn lấy mã món thật rồi mới mở lệnh đặt hàng",
+            "code_ref": "PureSchemaStateTracker",
+        },
+        "Return Status Gate": {
+            "title": "Hoàn đơn không đủ điều kiện",
+            "risk": "Gửi yêu cầu trả hàng cho đơn đã ở trạng thái hủy",
+            "v9_handling": "Đối chiếu trạng thái đơn hàng trước khi gọi API và chặn thao tác sai",
+            "code_ref": "PureSchemaStateTracker",
+        },
+        "Wallet Fallback": {
+            "title": "Ví điện tử không đủ tiền",
+            "risk": "Thanh toán ví thất bại nhưng vẫn tiếp tục gửi tin nhắn xác nhận giả cho người nhận",
+            "v9_handling": "Đối chiếu số dư thực, tự chuyển sang Tài khoản Ngân hàng hoặc chặn SMS giả",
+            "code_ref": "HybridProgramAidedEngine",
+        },
+        "History Entity Reuse": {
+            "title": "Tái sử dụng ID từ hội thoại cũ",
+            "risk": "Lá chắn quá cứng chặn oan mã đặt chỗ cũ hoặc nhầm mã khách sạn sang mã đặt chỗ",
+            "v9_handling": "Chuẩn hóa số ít/nhiều cùng app (cho dùng lại mã đặt chỗ) nhưng khóa cứng khóa ngoại",
+            "code_ref": "V9 Schema-First",
+        },
+        "Capacity & Date Gate": {
+            "title": "Vượt sức chứa & lệch ngày đặt phòng",
+            "risk": "Đặt 6 khách tại bàn tối đa 4 người hoặc nhập ngày trả phòng nhỏ hơn ngày nhận phòng",
+            "v9_handling": "Chặn trước khi chạm API dựa trên giới hạn schema và ngày tháng hợp lệ",
+            "code_ref": "V9 Schema-First",
+        },
+    }
+
+    rows: list[dict[str, Any]] = []
+    for r in raw_rows:
+        meta = vi_catalog[r["Scenario"]]
+        rows.append({
+            "title": meta["title"],
+            "risk": meta["risk"],
+            "v9_handling": meta["v9_handling"] if r["Safe"] else "Kiểm thử không đạt",
+            "code_ref": meta["code_ref"],
+            "safe": bool(r["Safe"]),
+        })
+
+    return {
+        "passed": sum(1 for x in rows if x["safe"]),
+        "total": len(rows),
+        "elapsed_ms": elapsed_ms,
+        "rows": rows,
+    }
+
+
+def get_architecture_layers_vi() -> list[dict[str, str]]:
+    """Return 5-layer architecture summary for editorial HTML rendering."""
+    return [
+        {
+            "layer": "1. Nhận dạng giọng nói",
+            "component": "Whisper Turbo CT2 (~0.8B) + Catalog Hotwords",
+            "role": "Loại nhiễu âm thanh và tự sinh từ khóa chuyên ngành theo danh mục ứng dụng đang cài",
+        },
+        {
+            "layer": "2. Chuẩn hóa tiếng Việt",
+            "component": "SafeContextPreprocessor · Number/Date Engine",
+            "role": "Tách số tiền bằng chữ ('hai triệu rưỡi'), giờ tương đối ('8 giờ rưỡi tối mai') sang ISO +07:00",
+        },
+        {
+            "layer": "3. Định tuyến & Nén lịch sử",
+            "component": "History-Aware Router + 24-Turn Compactor",
+            "role": "Xếp hạng công cụ < 2ms trên CPU; nén hội thoại dài 24 lượt giảm -74% ký tự mà giữ 100% Entity ID",
+        },
+        {
+            "layer": "4. Lập luận & Sinh công cụ",
+            "component": "Qwen3-4B + LoRA (r=128) Chunked-CE",
+            "role": "Giảm VRAM phần Loss Logits từ 5,30 GiB xuống 0,15 GiB để train 9.216 token trọn vẹn trên 1 GPU L4",
+        },
+        {
+            "layer": "5. Lá chắn thực thi V9",
+            "component": "PureSchemaStateTracker V9 + HybridEngine",
+            "role": "Suy diễn x-ref, x-one-of, tách khóa ngoại, giới hạn sức chứa/ngày và số dư ví trước khi chạm API",
+        },
+    ]

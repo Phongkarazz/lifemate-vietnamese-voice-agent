@@ -9,14 +9,37 @@ from datetime import datetime, timedelta
 from typing import Any
 
 WEEKDAY_MAP = {
-    "hai": 0, "thứ hai": 0, "thứ 2": 0, "t2": 0,
-    "ba": 1, "thứ ba": 1, "thứ 3": 1, "t3": 1,
-    "tư": 2, "thứ tư": 2, "thứ 4": 2, "t4": 2,
-    "năm": 3, "thứ năm": 3, "thứ 5": 3, "t5": 3,
-    "sáu": 4, "thứ sáu": 4, "thứ 6": 4, "t6": 4,
-    "bảy": 5, "thứ bảy": 5, "thứ 7": 5, "t7": 5,
+    "thứ hai": 0, "thứ 2": 0, "t2": 0,
+    "thứ ba": 1, "thứ 3": 1, "t3": 1,
+    "thứ tư": 2, "thứ 4": 2, "t4": 2,
+    "thứ năm": 3, "thứ 5": 3, "t5": 3,
+    "thứ sáu": 4, "thứ 6": 4, "t6": 4,
+    "thứ bảy": 5, "thứ 7": 5, "t7": 5,
     "chủ nhật": 6, "cn": 6,
 }
+
+_TOMORROW_RE = re.compile(r"(?:ngày\s+mai|sáng\s+mai|chiều\s+mai|tối\s+mai|\bmai\b)")
+_DAY_AFTER_RE = re.compile(r"(?:ngày\s+mốt|hôm\s+kia|ngày\s+kia)")
+_TODAY_RE = re.compile(r"(?:hôm\s+nay|chiều\s+nay|sáng\s+nay|tối\s+nay)")
+
+_SPOKEN_HOURS = {
+    "mười hai": 12,
+    "mười một": 11,
+    "mười": 10,
+    "chín": 9,
+    "tám": 8,
+    "bảy": 7,
+    "sáu": 6,
+    "năm": 5,
+    "bốn": 4,
+    "tư": 4,
+    "ba": 3,
+    "hai": 2,
+    "một": 1,
+}
+_SPOKEN_HOUR_ALT = "|".join(re.escape(k) for k in _SPOKEN_HOURS)
+_DIGIT_TIME_RE = re.compile(r"(\d{1,2})\s*(?:(h|giờ|:)\s*(\d{1,2}|rưỡi)?|rưỡi\b)")
+_SPOKEN_TIME_RE = re.compile(rf"\b({_SPOKEN_HOUR_ALT})\s+giờ(?:\s+(rưỡi|\d{{1,2}}))?\b")
 
 
 class VietnameseRelativeDateTimeEngine:
@@ -36,16 +59,16 @@ class VietnameseRelativeDateTimeEngine:
         target_date = base_dt.date()
         matched = False
 
-        if "ngày mai" in t or " sáng mai" in t or " chiều mai" in t or " tối mai" in t or t.endswith(" mai") or " mai " in t:
+        if _TOMORROW_RE.search(t):
             target_date += timedelta(days=1)
             matched = True
-        elif "ngày mốt" in t or "hôm kia" in t or "ngày kia" in t:
+        elif _DAY_AFTER_RE.search(t):
             target_date += timedelta(days=2)
             matched = True
         elif "hôm qua" in t:
             target_date -= timedelta(days=1)
             matched = True
-        elif "hôm nay" in t or "chiều nay" in t or "sáng nay" in t or "tối nay" in t:
+        elif _TODAY_RE.search(t):
             matched = True
         else:
             for wk_str, wk_idx in WEEKDAY_MAP.items():
@@ -84,10 +107,28 @@ class VietnameseRelativeDateTimeEngine:
         target_minute = 0
 
         t = query_text.lower()
-        time_m = re.search(r'(\d{1,2})\s*(?:h|giờ|:)\s*(\d{0,2})', t)
-        if time_m:
-            h = int(time_m.group(1))
-            m = int(time_m.group(2)) if time_m.group(2) else 0
+        h: int | None = None
+        m = 0
+
+        digit_m = _DIGIT_TIME_RE.search(t)
+        if digit_m:
+            h = int(digit_m.group(1))
+            min_tok = digit_m.group(3)
+            if min_tok == "rưỡi" or (digit_m.group(2) is None and "rưỡi" in digit_m.group(0)):
+                m = 30
+            elif min_tok:
+                m = int(min_tok)
+        else:
+            spoken_m = _SPOKEN_TIME_RE.search(t)
+            if spoken_m:
+                h = _SPOKEN_HOURS.get(spoken_m.group(1))
+                min_tok = spoken_m.group(2)
+                if min_tok == "rưỡi":
+                    m = 30
+                elif min_tok:
+                    m = int(min_tok)
+
+        if h is not None and 0 <= h <= 23 and 0 <= m <= 59:
             if any(w in t for w in ("chiều", "tối", "pm")) and h < 12:
                 h += 12
             elif "sáng" in t and h == 12:

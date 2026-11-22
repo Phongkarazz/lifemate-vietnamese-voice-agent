@@ -8,9 +8,12 @@ from pathlib import Path
 from demo.scenarios import (
     SCENARIO_CATALOG,
     analyze_vietnamese_utterance,
+    get_architecture_layers_vi,
     get_v9_evolution_rows,
+    run_audit_suite_vi,
     run_fintech_chaos_matrix,
     run_sandbox_scenario,
+    run_workbench_turn,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -59,6 +62,44 @@ class TestStreamlitMVPBackend(unittest.TestCase):
         food_out = analyze_vietnamese_utterance("Đặt cho mình 1 tô phở tái nạm ở quán Phở Thìn Sài Gòn nhé.", top_k=4)
         self.assertIsNone(food_out["monetary_amount"])
         self.assertEqual(food_out["recommended_apps"][0], "food_delivery")
+
+    def test_workbench_turn_and_audit_suite_vi(self) -> None:
+        # 1. Preset turn with V9 ON vs OFF
+        on_res = run_workbench_turn(
+            SCENARIO_CATALOG["fintech_bill_fallback"]["utterance"],
+            guardrail_enabled=True,
+            wallet_balance=120_000,
+        )
+        off_res = run_workbench_turn(
+            SCENARIO_CATALOG["fintech_bill_fallback"]["utterance"],
+            guardrail_enabled=False,
+            wallet_balance=120_000,
+        )
+        self.assertEqual(on_res["mode"], "preset")
+        self.assertEqual(on_res["receipt_card"]["kind"], "warn")
+        self.assertEqual(off_res["receipt_card"]["kind"], "err")
+        self.assertGreater(len(on_res["steps"]), 0)
+
+        # 2. Custom Vietnamese utterance flows end-to-end
+        custom_res = run_workbench_turn(
+            "Chuyển hai triệu năm trăm nghìn cho chị Lan lúc 8 giờ rưỡi tối mai nhé",
+            guardrail_enabled=True,
+        )
+        self.assertEqual(custom_res["mode"], "custom")
+        self.assertIn(custom_res["nlp"]["recommended_apps"][0], ("ewallet", "banking"))
+        self.assertEqual(custom_res["nlp"]["monetary_amount"], 2500000)
+        self.assertEqual(custom_res["nlp"]["resolved_iso"], "2026-11-18T20:30:00+07:00")
+        self.assertGreaterEqual(len(custom_res["steps"]), 1)
+
+        # 3. Clean Vietnamese audit suite passes 7/7 with zero English dev jargon
+        audit = run_audit_suite_vi()
+        self.assertEqual(audit["passed"], 7)
+        self.assertEqual(audit["total"], 7)
+        joined = " ".join(r["title"] + " " + r["risk"] + " " + r["v9_handling"] for r in audit["rows"])
+        for jargon in ("SOFT_NOOP", "done=False", "Premature Regex Cancel", "Aborts (0 calls)", "May confuse hotel_id"):
+            self.assertNotIn(jargon, joined)
+
+        self.assertEqual(len(get_architecture_layers_vi()), 5)
 
 
 if __name__ == "__main__":

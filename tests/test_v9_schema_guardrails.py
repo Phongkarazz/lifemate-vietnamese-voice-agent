@@ -11,6 +11,7 @@ if str(ROOT) not in sys.path:
 
 from scripts.benchmarks.benchmark_v9_suite import format_markdown_table, run_v9_benchmark_summary
 from src.asr import build_asr_hotwords_prompt
+from src.datetime_engine import VietnameseRelativeDateTimeEngine
 from src.guardrail import PureSchemaStateTracker
 from src.prompt_builder import format_history_block
 from src.router import SemanticToolRouter
@@ -473,6 +474,32 @@ class TestV9SchemaGuardrails(unittest.TestCase):
         self.assertEqual(summary["zero_shot_hotwords"]["v9_pct"], 100.0)
         table = format_markdown_table(summary)
         self.assertIn("V9 Schema-First", table)
+
+    def test_datetime_engine_no_monetary_weekday_false_positive_and_half_hour(self) -> None:
+        base_iso = "2026-11-17T09:00:00+07:00"
+        # Monetary 'bốn trăm năm mươi nghìn' must NOT match bare numeral 'năm' -> Thứ Năm
+        self.assertIsNone(
+            VietnameseRelativeDateTimeEngine.resolve_datetime_iso(
+                "Thanh toán hóa đơn điện bốn trăm năm mươi nghìn bằng ví nha",
+                base_iso,
+            )
+        )
+        # Supports '8 giờ rưỡi tối mai' -> 20:30 next day
+        self.assertEqual(
+            VietnameseRelativeDateTimeEngine.resolve_datetime_iso(
+                "Chuyển hai triệu năm trăm nghìn cho chị Lan lúc 8 giờ rưỡi tối mai",
+                base_iso,
+            ),
+            "2026-11-18T20:30:00+07:00",
+        )
+        # Supports sentence-initial 'Mai' + spoken 'tám giờ sáng'
+        self.assertEqual(
+            VietnameseRelativeDateTimeEngine.resolve_datetime_iso(
+                "Mai nếu có mưa thì đặt nhắc nhở lúc tám giờ sáng",
+                base_iso,
+            ),
+            "2026-11-18T08:00:00+07:00",
+        )
 
 
 if __name__ == "__main__":
