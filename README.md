@@ -6,25 +6,25 @@
 ![Private Score](https://img.shields.io/badge/Private%20Score-36.05%20(%2B9.65%20ASR%20Fix)-0068FF)
 ![Architecture](https://img.shields.io/badge/Safety-V9%20Schema--First-059669)
 ![Deployment](https://img.shields.io/badge/Docker-Offline%20--network%20none-informational)
-![Streamlit MVP](https://img.shields.io/badge/Demo-Streamlit%20Product%20UI-0068FF)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-lifemate--vietnamese--voice--agent.streamlit.app-0068FF)](https://lifemate-vietnamese-voice-agent.streamlit.app/)
 
 End-to-end offline Vietnamese **Voice-to-Action AI Agent** built for the **Zalo AI Challenge 2026 (LifeMate Track)** and engineered post-competition into **V9 Schema-First** for zero-shot app scaling, 24-turn context compaction, and deterministic transaction safety.
 
-> **Architecture Deep-Dive:** Read the 1-page systems engineering breakdown in [`docs/ARCHITECTURE_CASE_STUDY.md`](docs/ARCHITECTURE_CASE_STUDY.md).
+> **Try Live Workbench:** [https://lifemate-vietnamese-voice-agent.streamlit.app/](https://lifemate-vietnamese-voice-agent.streamlit.app/) &nbsp;·&nbsp; **Architecture Deep-Dive:** [`docs/ARCHITECTURE_CASE_STUDY.md`](docs/ARCHITECTURE_CASE_STUDY.md)
 
 ---
 
-## Interactive Demo & Product Showcase
+## Interactive Workbench & Product Showcase
 
-Designed with a distraction-free **Zalo Daylight** interface executing genuine `src/` Python modules offline on CPU. Launch locally (`streamlit run app.py`) or deploy the lightweight `deploy-streamlit` branch directly on [share.streamlit.io](https://share.streamlit.io):
+Built as a focused split-pane **LifeMate Workbench** (chat + action receipt on the left, live execution rail + device state inspector on the right) executing genuine `src/` Python modules offline on CPU. Try it live at **[lifemate-vietnamese-voice-agent.streamlit.app](https://lifemate-vietnamese-voice-agent.streamlit.app/)** or run locally (`streamlit run app.py`):
 
-| 1. Instant Vietnamese Assistant (`Thử nghiệm Trợ lý`) | 2. ReAct Trace & State Sandbox (`Bảo vệ Giao dịch`) |
+| 1. Unified Split-Pane Workbench (`Bảo vệ V9 Bật`) | 2. Unguarded Failure Replay (`Tắt Bảo vệ V9`) |
 |---|---|
-| ![Vietnamese Assistant](assets/screenshots/01_assistant.png) | ![Interactive Sandbox](assets/screenshots/02_sandbox.png) |
+| ![LifeMate Workbench Safe Mode](assets/screenshots/01_assistant.png) | ![LifeMate Workbench Unguarded Risk](assets/screenshots/02_sandbox.png) |
 
-| 3. FinTech & V9 Schema-First Matrix (`An toàn Giao dịch`) | 4. Architecture, L4 Profile & V7 → V9 Benchmark (`Hiệu năng`) |
+| 3. Safety Audit Console (`7/7 Kịch bản An toàn`) | 4. Engineering Benchmarks & L4 Profile (`Kỹ thuật`) |
 |---|---|
-| ![V9 Safety Audit](assets/screenshots/03_safety.png) | ![Architecture & V9 Benchmark](assets/screenshots/04_architecture.png) |
+| ![V9 Safety Audit Console](assets/screenshots/03_safety.png) | ![Architecture & V9 Benchmark](assets/screenshots/04_architecture.png) |
 
 > **Data & IP Compliance Note:** Per the Zalo AI Challenge 2026 regulations, all competition datasets (`train/`, `public_test/`, `private_test/`, audio `.wav` files, and competition submissions) are strictly excluded from this repository. Clean synthetic scenarios power [`examples/offline_agent_demo.py`](examples/offline_agent_demo.py), [`scripts/benchmarks/benchmark_v9_suite.py`](scripts/benchmarks/benchmark_v9_suite.py), and [`tests/`](tests/).
 
@@ -95,14 +95,14 @@ flowchart LR
 ## Repository Structure
 
 ```text
-├── app.py                      # Minimalist Zalo-inspired Streamlit product UI (3 focused views)
-├── demo/                       # Sandbox scenarios, 7-case chaos matrix & V9 analytics backend
-├── assets/screenshots/         # Verified Zalo Daylight captures for portfolio & case study
+├── app.py                      # Split-pane LifeMate Workbench UI (Chat + Live Inspector + Audit)
+├── demo/                       # Unified workbench backend, 7-case Vietnamese audit suite & benchmarks
+├── assets/screenshots/         # Verified Workbench captures for portfolio & LinkedIn
 ├── .streamlit/config.toml      # Clean daylight Zalo theme (#FFFFFF / #F7F8FA / #0068FF)
 ├── src/                        # Core runtime: V9 guardrails, ASR hotwords, compactor, router, agent
 ├── notebooks/                  # L4 Max Chunked-CE training (V6/V7) & resumable Colab inference
 ├── examples/                   # Standalone zero-dependency offline guardrail showcase demo
-├── tests/                      # 52 unit & regression tests (including 12 V9 schema/compaction tests)
+├── tests/                      # 54 unit & regression tests (V9 schema/compaction/datetime + MVP)
 ├── scripts/
 │   ├── data/                   # SFT dataset builders & simulator trajectory validators
 │   ├── benchmarks/             # V9 CPU suite (benchmark_v9_suite.py), ASR & training benchmarks
@@ -121,13 +121,13 @@ flowchart LR
 Core V9 guardrail, compaction, routing, benchmark, showcase, and Docker contract checks run with Python standard library alone (`scikit-learn` / `torch` / `vllm` are optional for GPU training or full model inference):
 
 ```bash
-# 1. Run full unit & regression suite (52 tests)
+# 1. Run full unit & regression suite (54 tests)
 python3 -m unittest discover -s tests -v
 
 # 2. Run the reproducible V9 CPU benchmark
 python3 scripts/benchmarks/benchmark_v9_suite.py
 
-# 3. Launch the minimalist Zalo Daylight product UI
+# 3. Launch the LifeMate Workbench UI locally
 pip install -r requirements-streamlit.txt
 streamlit run app.py
 
