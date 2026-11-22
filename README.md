@@ -4,11 +4,11 @@
 ![Base LLM](https://img.shields.io/badge/LLM-Qwen3--4B%20LoRA%20(r%3D128)-orange)
 ![Public Score](https://img.shields.io/badge/Public%20Score-49.60-brightgreen)
 ![Private Score](https://img.shields.io/badge/Private%20Score-36.05%20(%2B9.65%20ASR%20Fix)-0068FF)
-![Architecture](https://img.shields.io/badge/Safety-V9%20Schema--First-059669)
+![Architecture](https://img.shields.io/badge/Guardrails-Schema--First-059669)
 ![Deployment](https://img.shields.io/badge/Docker-Offline%20--network%20none-informational)
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-lifemate--vietnamese--voice--agent.streamlit.app-0068FF)](https://lifemate-vietnamese-voice-agent.streamlit.app/)
 
-End-to-end offline Vietnamese **Voice-to-Action AI Agent** built for the **Zalo AI Challenge 2026 (LifeMate Track)** and engineered post-competition into **V9 Schema-First** for zero-shot app scaling, 24-turn context compaction, and deterministic transaction safety.
+End-to-end offline Vietnamese **Voice-to-Action AI Agent** built for the **Zalo AI Challenge 2026 (LifeMate Track)** and refactored post-competition into a **Schema-First Architecture** for zero-shot app scaling, 24-turn context compaction, and deterministic transaction safety.
 
 > **Try Live Workbench:** [https://lifemate-vietnamese-voice-agent.streamlit.app/](https://lifemate-vietnamese-voice-agent.streamlit.app/) &nbsp;·&nbsp; **Architecture Deep-Dive:** [`docs/ARCHITECTURE_CASE_STUDY.md`](docs/ARCHITECTURE_CASE_STUDY.md)
 
@@ -18,13 +18,13 @@ End-to-end offline Vietnamese **Voice-to-Action AI Agent** built for the **Zalo 
 
 Built as a focused split-pane **LifeMate Workbench** (chat + action receipt on the left, live execution rail + device state inspector on the right) executing genuine `src/` Python modules offline on CPU. Try it live at **[lifemate-vietnamese-voice-agent.streamlit.app](https://lifemate-vietnamese-voice-agent.streamlit.app/)** or run locally (`streamlit run app.py`):
 
-| 1. Unified Split-Pane Workbench (`Bảo vệ V9 Bật`) | 2. Unguarded Failure Replay (`Tắt Bảo vệ V9`) |
+| 1. Unified Split-Pane Workbench (`Kiểm soát thực thi Bật`) | 2. Unguarded Failure Replay (`Tắt kiểm soát`) |
 |---|---|
 | ![LifeMate Workbench Safe Mode](assets/screenshots/01_assistant.png) | ![LifeMate Workbench Unguarded Risk](assets/screenshots/02_sandbox.png) |
 
-| 3. Safety Audit Console (`7/7 Kịch bản An toàn`) | 4. Engineering Benchmarks & L4 Profile (`Kỹ thuật`) |
+| 3. Safety Audit Console (`7/7 Kịch bản Đạt`) | 4. Engineering Telemetry & CPU Benchmark |
 |---|---|
-| ![V9 Safety Audit Console](assets/screenshots/03_safety.png) | ![Architecture & V9 Benchmark](assets/screenshots/04_architecture.png) |
+| ![Safety Audit Console](assets/screenshots/03_safety.png) | ![Engineering Telemetry & Benchmark](assets/screenshots/04_architecture.png) |
 
 > **Data & IP Compliance Note:** Per the Zalo AI Challenge 2026 regulations, all competition datasets (`train/`, `public_test/`, `private_test/`, audio `.wav` files, and competition submissions) are strictly excluded from this repository. Clean synthetic scenarios power [`examples/offline_agent_demo.py`](examples/offline_agent_demo.py), [`scripts/benchmarks/benchmark_v9_suite.py`](scripts/benchmarks/benchmark_v9_suite.py), and [`tests/`](tests/).
 
@@ -39,15 +39,15 @@ Built as a focused split-pane **LifeMate Workbench** (chat + action receipt on t
 - **Private Evaluation & Root-Cause Recovery (`26.40` → `36.05`, `+9.65` points):**
   - Auditing the initial `26.40` blind evaluation uncovered a silent pipeline misconfiguration: ASR inference fell back to base `faster-whisper-large-v3-turbo-ct2` weights instead of the fine-tuned Vietnamese checkpoint, compounded by shared cache/resume collisions.
   - Isolating fresh ASR caches, re-running with the fine-tuned Vietnamese Whisper checkpoint, and verifying deterministic `state_hash` replay across all outputs lifted the Private Score by **`+9.65` points to `36.05`**.
-  - General engineering bottlenecks surfaced during multi-turn evaluation—long-horizon context bloat, multi-turn ASR compounding, and unseen tool schemas—directly drove the **V9 Schema-First** redesign below.
+  - General engineering bottlenecks surfaced during multi-turn evaluation—long-horizon context bloat, multi-turn ASR compounding, and unseen tool schemas—directly drove the post-competition **Schema-First Architecture** redesign below.
 
 ---
 
-## V9 Reproducible CPU Benchmark (100% Synthetic Suite)
+## Reproducible CPU Benchmark (100% Synthetic Suite)
 
 Run `python3 scripts/benchmarks/benchmark_v9_suite.py` locally (zero GPU or external API required):
 
-| Metric | Raw LLM | V7 Legacy Rules | V9 Schema-First |
+| Metric | Raw LLM | Competition Rules (V7) | Schema-First |
 |---|---:|---:|---:|
 | Unsafe Write Interception (10 adversarial cases) | 0.0% | 20.0% | **100.0%** |
 | History Entity False-Positive Block Rate (5 follow-ups) | 0.0% (no guard) | 100.0% | **0.0%** |
@@ -67,7 +67,7 @@ flowchart LR
     B --> C["Language Preprocessor<br/>SafeContextPreprocessor & Normalizer"]
     C --> D["History-Aware Router + Compactor<br/>TF-IDF + 24-Turn ID-Safe Compression"]
     D --> E["Qwen3-4B + LoRA (r=128)<br/>ReAct &lt;think&gt; + &lt;tool_call&gt;"]
-    E --> F["V9 Schema-First Guardrails<br/>PureSchemaStateTracker + ActionTriage + HybridEngine"]
+    E --> F["Schema-First Guardrails<br/>PureSchemaStateTracker + ActionTriage + HybridEngine"]
     F -->|Precheck Failed| E
     F -->|Verified Call| G["ToolEnv Sandbox<br/>State Hash & Tool Calls"]
 ```
@@ -78,7 +78,7 @@ flowchart LR
    - Full multi-turn tool trajectories span up to **8.5k–8.8k tokens** (`MAX_SEQ_LEN = 9216`), overflowing naive 4k/8k caps and truncating final `<tool_call>` turns.
    - Implemented **`ChunkedLossTrainer`** computing `lm_head` + cross-entropy in 256-token active assistant chunks, slashing CE logits memory from **5.30 GiB → 0.15 GiB** (`14.02 / 22.03 GiB` peak L4 VRAM) with native `bf16` + `LoRA r=128, alpha=256`, converging to `val_loss = 0.019530` at `checkpoint-250`.
 
-2. **V9 Schema-First Execution Guardrails** ([`src/guardrail.py`](src/guardrail.py), [`src/action_triage.py`](src/action_triage.py)):
+2. **Schema-First Execution Guardrails** ([`src/guardrail.py`](src/guardrail.py), [`src/action_triage.py`](src/action_triage.py)):
    - **Singular/Plural & FK Isolation:** Reconciles singular tool outputs (`booking`, `appointment`, `item`) with plural `x-ref` declarations (`bookings`, `appointments`, `items`) inside the same app (**0% false-positive history blocks**), isolates foreign keys from primary entity IDs, and keeps cross-app collections strictly locked.
    - **Generic Constraint & Dependency Gates:** Enforces `x-one-of` groups, temporal ordering (`check_in < check_out`, `start_date <= end_date`), ISO-8601 `+07:00` offsets, `max_guests` capacity, `available` flags, `room_type`, `slots` / operating hours, `episode` bounds, `get_menu` before `place_order`, and return eligibility.
 
@@ -99,13 +99,13 @@ flowchart LR
 ├── demo/                       # Unified workbench backend, 7-case Vietnamese audit suite & benchmarks
 ├── assets/screenshots/         # Verified Workbench captures for portfolio & LinkedIn
 ├── .streamlit/config.toml      # Clean daylight Zalo theme (#FFFFFF / #F7F8FA / #0068FF)
-├── src/                        # Core runtime: V9 guardrails, ASR hotwords, compactor, router, agent
+├── src/                        # Core runtime: guardrails, ASR hotwords, compactor, router, agent
 ├── notebooks/                  # L4 Max Chunked-CE training (V6/V7) & resumable Colab inference
 ├── examples/                   # Standalone zero-dependency offline guardrail showcase demo
-├── tests/                      # 54 unit & regression tests (V9 schema/compaction/datetime + MVP)
+├── tests/                      # 54 unit & regression tests (schema/compaction/datetime + MVP)
 ├── scripts/
 │   ├── data/                   # SFT dataset builders & simulator trajectory validators
-│   ├── benchmarks/             # V9 CPU suite (benchmark_v9_suite.py), ASR & training benchmarks
+│   ├── benchmarks/             # Reproducible CPU suite (benchmark_v9_suite.py), ASR & training benchmarks
 │   └── prepare_saved_models.py # LoRA merge & offline model packaging utilities
 ├── configs/                    # Training & GRPO/RLVR hyperparameter configurations
 ├── docs/                       # Architecture case study & post-competition engineering roadmap
@@ -118,13 +118,13 @@ flowchart LR
 
 ## Quickstart (Zero-Dependency Local Verification)
 
-Core V9 guardrail, compaction, routing, benchmark, showcase, and Docker contract checks run with Python standard library alone (`scikit-learn` / `torch` / `vllm` are optional for GPU training or full model inference):
+Core guardrail, compaction, routing, benchmark, showcase, and Docker contract checks run with Python standard library alone (`scikit-learn` / `torch` / `vllm` are optional for GPU training or full model inference):
 
 ```bash
 # 1. Run full unit & regression suite (54 tests)
 python3 -m unittest discover -s tests -v
 
-# 2. Run the reproducible V9 CPU benchmark
+# 2. Run the reproducible CPU benchmark
 python3 scripts/benchmarks/benchmark_v9_suite.py
 
 # 3. Launch the LifeMate Workbench UI locally
@@ -144,4 +144,4 @@ For full GPU training (`pip install -r requirements.txt`) and offline Docker pac
 ## Attribution
 
 - **Origin & Team Contribution:** Built on top of our team's Zalo AI Challenge 2026 LifeMate repository (`sun0810pi/zalo-challenge`).
-- **Personal Contributions (Hà Sỹ Phong):** Designed the L4 Max `ChunkedLossTrainer` 9,216-token SFT training workflows (`V6: 49.30` → `V7: 49.60`, team-highest public submissions), audited private-test inference to resolve the silent Whisper checkpoint & cache collision bug (`26.40` → `36.05`, `+9.65` points), engineered the post-competition **V9 Schema-First** safety, zero-shot hotword, history-aware routing, and 24-turn compaction architecture, authored the reproducible CPU benchmark suite & architecture case study, and built this standalone Streamlit product demo.
+- **Personal Contributions (Hà Sỹ Phong):** Designed the L4 Max `ChunkedLossTrainer` 9,216-token SFT training workflows (`V6: 49.30` → `V7: 49.60`, team-highest public submissions), audited private-test inference to resolve the silent Whisper checkpoint & cache collision bug (`26.40` → `36.05`, `+9.65` points), engineered the post-competition **Schema-First** safety, zero-shot hotword, history-aware routing, and 24-turn compaction architecture, authored the reproducible CPU benchmark suite & architecture case study, and built this standalone interactive workbench.

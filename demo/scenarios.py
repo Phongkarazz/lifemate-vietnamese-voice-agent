@@ -735,7 +735,7 @@ def run_fintech_chaos_matrix() -> list[dict[str, Any]]:
 
 
 def get_v9_evolution_rows() -> list[dict[str, Any]]:
-    """Run synthetic V9 CPU benchmark live and format clean Vietnamese comparison rows."""
+    """Run synthetic CPU benchmark live and format clean Vietnamese comparison rows."""
     from scripts.benchmarks.benchmark_v9_suite import run_v9_benchmark_summary
 
     summary = run_v9_benchmark_summary()
@@ -750,44 +750,44 @@ def get_v9_evolution_rows() -> list[dict[str, Any]]:
         {
             "Hạng mục kiểm thử (Synthetic CPU)": f"Chặn ghi sai nghiệp vụ ({ui['total']} kịch bản)",
             "LLM Thô": f"{ui['raw_pct']:.1f}%",
-            "LifeMate V7": f"{ui['v7_pct']:.1f}%",
-            "LifeMate V9": f"{ui['v9_pct']:.1f}%",
+            "Bản nộp thi (V7)": f"{ui['v7_pct']:.1f}%",
+            "Kiến trúc Schema-First": f"{ui['v9_pct']:.1f}%",
         },
         {
             "Hạng mục kiểm thử (Synthetic CPU)": f"Chặn oan ID từ hội thoại cũ ({fp['total']} mẫu)",
             "LLM Thô": "0.0% (không chặn)",
-            "LifeMate V7": f"{fp['v7_fp_pct']:.1f}%",
-            "LifeMate V9": f"{fp['v9_fp_pct']:.1f}%",
+            "Bản nộp thi (V7)": f"{fp['v7_fp_pct']:.1f}%",
+            "Kiến trúc Schema-First": f"{fp['v9_fp_pct']:.1f}%",
         },
         {
             "Hạng mục kiểm thử (Synthetic CPU)": "Nén lịch sử hội thoại 24 lượt (ký tự)",
             "LLM Thô": f"{cmp['raw_chars']:,} (0%)",
-            "LifeMate V7": f"{cmp['raw_chars']:,} (0%)",
-            "LifeMate V9": f"{cmp['compacted_chars']:,} (-{cmp['savings_pct']:.1f}%)",
+            "Bản nộp thi (V7)": f"{cmp['raw_chars']:,} (0%)",
+            "Kiến trúc Schema-First": f"{cmp['compacted_chars']:,} (-{cmp['savings_pct']:.1f}%)",
         },
         {
             "Hạng mục kiểm thử (Synthetic CPU)": "Bảo toàn Entity ID xuyên suốt 24 lượt",
             "LLM Thô": "—",
-            "LifeMate V7": "—",
-            "LifeMate V9": f"{cmp['entity_id_retention_pct']:.1f}% ({cmp['retained_ids']}/{cmp['expected_ids']})",
+            "Bản nộp thi (V7)": "—",
+            "Kiến trúc Schema-First": f"{cmp['entity_id_retention_pct']:.1f}% ({cmp['retained_ids']}/{cmp['expected_ids']})",
         },
         {
             "Hạng mục kiểm thử (Synthetic CPU)": f"Độ phủ Hotword app mới Zero-Shot ({hw['total_unseen_apps']} app)",
             "LLM Thô": "0.0%",
-            "LifeMate V7": f"{hw['v7_pct']:.1f}%",
-            "LifeMate V9": f"{hw['v9_pct']:.1f}%",
+            "Bản nộp thi (V7)": f"{hw['v7_pct']:.1f}%",
+            "Kiến trúc Schema-First": f"{hw['v9_pct']:.1f}%",
         },
         {
             "Hạng mục kiểm thử (Synthetic CPU)": f"Định tuyến câu nối tiếp rút gọn ({rt['total']} hội thoại)",
             "LLM Thô": f"{rt['raw_top1_pct']:.1f}%",
-            "LifeMate V7": f"{rt['raw_top1_pct']:.1f}%",
-            "LifeMate V9": f"{rt['v9_top1_pct']:.1f}%",
+            "Bản nộp thi (V7)": f"{rt['raw_top1_pct']:.1f}%",
+            "Kiến trúc Schema-First": f"{rt['v9_top1_pct']:.1f}%",
         },
         {
-            "Hạng mục kiểm thử (Synthetic CPU)": f"Độ trễ CPU Guardrail (p50 / p95 · {int(lt['iterations'])} lượt)",
+            "Hạng mục kiểm thử (Synthetic CPU)": f"Độ trễ CPU xác thực (p50 / p95 · {int(lt['iterations'])} lượt)",
             "LLM Thô": "0 ms",
-            "LifeMate V7": "—",
-            "LifeMate V9": f"{lt['p50_ms']:.3f} ms / {lt['p95_ms']:.3f} ms",
+            "Bản nộp thi (V7)": "—",
+            "Kiến trúc Schema-First": f"{lt['p50_ms']:.3f} ms / {lt['p95_ms']:.3f} ms",
         },
     ]
 
@@ -939,7 +939,7 @@ def _step_to_vi(step: dict[str, Any], scenario_id: str) -> dict[str, Any]:
     elif raw_status == "MISSED":
         note_vi = "Bộ lọc cũ hiểu nhầm câu điều kiện thành lệnh hủy nên dừng luôn ở bước 0."
     elif raw_status == "EXECUTED_UNCHECKED":
-        note_vi = "Thực thi trực tiếp vì đã tắt lớp bảo vệ V9."
+        note_vi = "Thực thi trực tiếp vì đã tắt bước kiểm soát thực thi."
 
     return {
         "idx": int(step["step"]),
@@ -1027,7 +1027,7 @@ def _build_preset_reply(
             )
         if bill_status == "unpaid":
             return (
-                f"Sự cố thực tế khi tắt bảo vệ: Mô hình cố trừ 450.000 đ từ Ví điện tử ({_fmt_vnd_vi(wallet_balance)}) nên giao dịch THẤT BẠI, nhưng vẫn tiếp tục gửi SMS xác nhận giả 'Đã thanh toán' cho Anh Minh.",
+                f"Sự cố khi tắt kiểm soát thực thi: Mô hình cố trừ 450.000 đ từ Ví điện tử ({_fmt_vnd_vi(wallet_balance)}) nên giao dịch THẤT BẠI, nhưng vẫn tiếp tục gửi SMS xác nhận giả 'Đã thanh toán' cho Anh Minh.",
                 {
                     "kind": "err",
                     "badge": "Cảnh báo mất an toàn",
@@ -1039,7 +1039,7 @@ def _build_preset_reply(
             "Đã gọi thanh toán qua Ví điện tử và gửi tin nhắn xác nhận (bỏ qua bước kiểm tra điều kiện số dư).",
             {
                 "kind": "warn",
-                "badge": "Chạy không qua lá chắn",
+                "badge": "Chạy không qua kiểm soát",
                 "title": "Hóa đơn EVN HCMC · 450.000 đ",
                 "subtitle": "Thực thi trực tiếp không qua kiểm tra điều kiện",
             },
@@ -1048,7 +1048,7 @@ def _build_preset_reply(
     if sid == "v8_food_menu_dependency":
         if guardrail_enabled:
             return (
-                "Lá chắn V9 đã chặn bước đặt món nhảy cóc, buộc tra cứu thực đơn tại Phở Thìn Sài Gòn để lấy đúng mã món thật rồi mới đặt 1 tô phở tái nạm thành công.",
+                "Hệ thống đã chặn thao tác đặt món khi chưa đọc thực đơn, tự động tra cứu thực đơn tại Phở Thìn Sài Gòn để lấy đúng mã món thật rồi mới đặt 1 tô phở tái nạm.",
                 {
                     "kind": "ok",
                     "badge": "Đặt món thành công",
@@ -1069,7 +1069,7 @@ def _build_preset_reply(
     if sid == "spoken_id_read_before_write":
         if guardrail_enabled:
             return (
-                "Lá chắn V9 đã chặn mã nói miệng 'SP204', tự động tìm sản phẩm Yến mạch hữu cơ hộp 500g trong danh mục và thêm 2 hộp vào giỏ hàng.",
+                "Hệ thống đã chặn mã nói miệng 'SP204', tự động tra cứu danh mục sản phẩm thật và thêm 2 hộp Yến mạch hữu cơ 500g vào giỏ hàng.",
                 {
                     "kind": "ok",
                     "badge": "Đã thêm vào giỏ",
@@ -1244,7 +1244,7 @@ def run_workbench_turn(
                         "args": sample_args,
                         "status_kind": "warn",
                         "status_vi": "Bắt buộc tra ID trước",
-                        "note_vi": "Lá chắn V9 yêu cầu lấy đúng mã hệ thống từ bước đọc trước khi ghi.",
+                        "note_vi": "Cần tra cứu và lấy đúng mã thực thể hệ thống trước khi thực thi thao tác ghi.",
                     })
                 else:
                     custom_steps.append({
@@ -1253,7 +1253,7 @@ def run_workbench_turn(
                         "args": sample_args,
                         "status_kind": "ok",
                         "status_vi": "Sẵn sàng thực thi",
-                        "note_vi": "Đã kiểm tra đầy đủ định dạng và ràng buộc schema V9.",
+                        "note_vi": "Đã xác thực đầy đủ định dạng và ràng buộc JSON Schema.",
                     })
             else:
                 custom_steps.append({
@@ -1262,7 +1262,7 @@ def run_workbench_turn(
                     "args": sample_args,
                     "status_kind": "warn",
                     "status_vi": "Chạy trực tiếp",
-                    "note_vi": "Đang tắt bảo vệ V9 — tham số sẽ đi thẳng tới API.",
+                    "note_vi": "Đang tắt kiểm soát — tham số sẽ đi thẳng tới API.",
                 })
 
         details = []
@@ -1273,11 +1273,11 @@ def run_workbench_turn(
         detail_txt = f" ({', '.join(details)})" if details else ""
         reply = (
             f"Đã phân tích câu lệnh và định tuyến vào nhóm «{top_name_vi}»{detail_txt}. "
-            + ("Lá chắn V9 đang kích hoạt để xác thực mã thực thể và ràng buộc schema trước khi ghi." if guardrail_enabled else "Đang chạy ở chế độ không kiểm tra trước.")
+            + ("Hệ thống đang xác thực mã thực thể và ràng buộc schema trước khi ghi." if guardrail_enabled else "Đang chạy ở chế độ thực thi trực tiếp.")
         )
         card = {
             "kind": "ok" if guardrail_enabled else "warn",
-            "badge": "Phân tích trực tiếp V9" if guardrail_enabled else "Chế độ mô hình thô",
+            "badge": "Kết quả phân tích" if guardrail_enabled else "Thực thi trực tiếp",
             "title": f"Ứng dụng: {top_name_vi}",
             "subtitle": f"Số tiền: {_fmt_vnd_vi(mon_amt)} · Lịch hẹn: {_fmt_iso_vi(iso_dt)}",
         }
@@ -1352,15 +1352,15 @@ def run_audit_suite_vi() -> dict[str, Any]:
         },
         "History Entity Reuse": {
             "title": "Tái sử dụng ID từ hội thoại cũ",
-            "risk": "Lá chắn quá cứng chặn oan mã đặt chỗ cũ hoặc nhầm mã khách sạn sang mã đặt chỗ",
+            "risk": "Bộ kiểm soát cứng nhắc có thể chặn oan mã đặt chỗ cũ hoặc nhầm mã khách sạn sang mã đặt chỗ",
             "v9_handling": "Chuẩn hóa số ít/nhiều cùng app (cho dùng lại mã đặt chỗ) nhưng khóa cứng khóa ngoại",
-            "code_ref": "V9 Schema-First",
+            "code_ref": "Schema-First",
         },
         "Capacity & Date Gate": {
             "title": "Vượt sức chứa & lệch ngày đặt phòng",
             "risk": "Đặt 6 khách tại bàn tối đa 4 người hoặc nhập ngày trả phòng nhỏ hơn ngày nhận phòng",
             "v9_handling": "Chặn trước khi chạm API dựa trên giới hạn schema và ngày tháng hợp lệ",
-            "code_ref": "V9 Schema-First",
+            "code_ref": "Schema-First",
         },
     }
 
@@ -1394,7 +1394,7 @@ def get_architecture_layers_vi() -> list[dict[str, str]]:
         {
             "layer": "2. Chuẩn hóa tiếng Việt",
             "component": "SafeContextPreprocessor · Number/Date Engine",
-            "role": "Tách số tiền bằng chữ ('hai triệu rưỡi'), giờ tương đối ('8 giờ rưỡi tối mai') sang ISO +07:00",
+            "role": "Tách số tiền bằng chữ ('hai triệu rưỡi'), giờ tương đối ('sáu rưỡi ngày mai') sang ISO +07:00",
         },
         {
             "layer": "3. Định tuyến & Nén lịch sử",
@@ -1407,8 +1407,8 @@ def get_architecture_layers_vi() -> list[dict[str, str]]:
             "role": "Giảm VRAM phần Loss Logits từ 5,30 GiB xuống 0,15 GiB để train 9.216 token trọn vẹn trên 1 GPU L4",
         },
         {
-            "layer": "5. Lá chắn thực thi V9",
-            "component": "PureSchemaStateTracker V9 + HybridEngine",
+            "layer": "5. Xác thực & Kiểm soát",
+            "component": "PureSchemaStateTracker + HybridEngine",
             "role": "Suy diễn x-ref, x-one-of, tách khóa ngoại, giới hạn sức chứa/ngày và số dư ví trước khi chạm API",
         },
     ]

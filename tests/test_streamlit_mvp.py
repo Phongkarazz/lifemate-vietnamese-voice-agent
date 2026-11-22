@@ -49,7 +49,7 @@ class TestStreamlitMVPBackend(unittest.TestCase):
 
         evo_rows = get_v9_evolution_rows()
         self.assertGreaterEqual(len(evo_rows), 6)
-        self.assertIn("LifeMate V9", evo_rows[0])
+        self.assertIn("Kiến trúc Schema-First", evo_rows[0])
 
     def test_analyze_vietnamese_utterance(self) -> None:
         out = analyze_vietnamese_utterance("Chuyển hai triệu năm trăm nghìn sang ví lúc 8 rưỡi tối mai", top_k=4)
@@ -118,6 +118,20 @@ class TestStreamlitMVPBackend(unittest.TestCase):
             self.assertNotIn(jargon, joined)
 
         self.assertEqual(len(get_architecture_layers_vi()), 5)
+
+        # 4. Zero vibe-coding 'Lá chắn V9' / 'Bảo vệ V9' / 'v9.0' copy in UI or outputs
+        app_src_l = (ROOT / "app.py").read_text(encoding="utf-8").lower()
+        sample_outputs = " ".join(
+            [
+                on_res["assistant_reply"],
+                custom_res["assistant_reply"],
+                custom_res["receipt_card"]["badge"],
+                joined,
+            ]
+        ).lower()
+        for banned in ("lá chắn v9", "bảo vệ v9", "phân tích trực tiếp v9", ">v9.0<"):
+            self.assertNotIn(banned, app_src_l)
+            self.assertNotIn(banned, sample_outputs)
 
 
 if __name__ == "__main__":

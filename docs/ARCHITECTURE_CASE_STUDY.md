@@ -1,6 +1,6 @@
 # LifeMate Architecture Case Study — Offline Vietnamese Voice-to-Action Agent (`< 6B`)
 
-**Author:** Hà Sỹ Phong (FTU HCMC) · **Codebase:** [`lifemate-vietnamese-voice-agent`](https://github.com/Phongkarazz/lifemate-vietnamese-voice-agent) · **Live Workbench:** [`lifemate-vietnamese-voice-agent.streamlit.app`](https://lifemate-vietnamese-voice-agent.streamlit.app/)
+**Live Workbench:** [lifemate-vietnamese-voice-agent.streamlit.app](https://lifemate-vietnamese-voice-agent.streamlit.app/) · **Repository:** [`lifemate-vietnamese-voice-agent`](https://github.com/Phongkarazz/lifemate-vietnamese-voice-agent) · **Runtime Budget:** Offline `< 6B` SLM
 
 ---
 
@@ -39,7 +39,7 @@ Fine-tuning `Qwen/Qwen3-4B` (`bf16`, `LoRA r=128, alpha=256`, `paged_adamw_8bit`
 2. **Cache/Resume Collision Hazard:** Re-running directly against shared output paths risked reusing base-ASR transcript caches or `--resume` checkpoints from the defective run. Isolating both the ASR JSON cache path and output JSONL path forced clean end-to-end re-transcription with the fine-tuned Vietnamese checkpoint.
 3. **Deterministic Audit Verification:** Before resubmitting, every generated output was re-verified for 100% ID ordering, schema validity, zero `ToolEnv` invalid calls, and zero `state_hash` replay mismatches, raising the Private Score directly from **`26.40` to `36.05` (`+9.65` points)**.
 
-### General Post-Competition Engineering Lessons (Motivating V9)
+### General Post-Competition Engineering Lessons (Motivating Schema-First Design)
 Evaluating distribution shifts across complex multi-turn tasks surfaced three universal architectural bottlenecks in `< 6B` offline agents:
 - **Long-Horizon Context Bloat & Lost-in-the-Middle:** Retaining unpruned reviews, descriptions, and metadata from early tool calls inflates prompts across 15–24+ turn conversations, obscuring critical entity IDs from earlier turns.
 - **Multi-Turn ASR Error Compounding:** Phonetically similar proper nouns accumulate across multi-turn spoken dialogues when ASR initial prompts rely solely on static dictionaries.
@@ -47,11 +47,11 @@ Evaluating distribution shifts across complex multi-turn tasks surfaced three un
 
 ---
 
-## 4. V9 Schema-First Architecture (`src/`)
+## 4. Post-Competition Schema-First Architecture (`src/`)
 
-To solve those bottlenecks generically without per-app hardcoding, the codebase was extended post-competition into **V9 Schema-First**:
+To solve those bottlenecks generically without per-app hardcoding, the runtime was refactored into a **Schema-First Architecture**:
 
-1. **V9 Schema-First Guardrails ([`src/guardrail.py`](../src/guardrail.py)):**
+1. **Schema-First Execution Guardrails ([`src/guardrail.py`](../src/guardrail.py)):**
    - **Singular/Plural & Generic Collection Normalization:** `_normalize_collection_key` and `_collections_match` reconcile `app.booking` with `app.bookings` (plus generic keys like `item` / `entry`) within the same application, eliminating false-positive blocks on reused history entities while preserving strict cross-app boundaries (`pantry` ↔ `grocery` remains locked).
    - **Primary ID vs. Foreign Key Isolation:** `_record_entity_dict` keeps an entity's primary ID inside its collection membership set while isolating foreign keys (e.g., `hotel_id` nested inside a `booking`), blocking FK confusion at write time.
    - **Schema-Inferred Execution Gates:** Automatically enforces `x-one-of` parameter requirements, date ordering (`check_in < check_out`, `start_date <= end_date`), ISO-8601 `+07:00` timezones, guest capacity (`guests <= max_guests`), availability flags (`available=True`), `room_type` membership, `slots` / operating hours (`open..close`), and media `episode` bounds directly from schema & observed state.
@@ -68,9 +68,9 @@ To solve those bottlenecks generically without per-app hardcoding, the codebase 
 
 Measured locally on CPU using 100% clean synthetic scenarios (`python3 scripts/benchmarks/benchmark_v9_suite.py`):
 
-### LifeMate V9 Reproducible CPU Benchmark (100% Synthetic Suite)
+### Reproducible CPU Benchmark (100% Synthetic Suite)
 
-| Metric | Raw LLM | V7 Legacy Rules | V9 Schema-First |
+| Metric | Raw LLM | Competition Rules (V7) | Schema-First |
 |---|---:|---:|---:|
 | Unsafe Write Interception (10 adversarial cases) | 0.0% | 20.0% | **100.0%** |
 | History Entity False-Positive Block Rate (5 follow-ups) | 0.0% (no guard) | 100.0% | **0.0%** |
@@ -85,5 +85,5 @@ Measured locally on CPU using 100% clean synthetic scenarios (`python3 scripts/b
 ## 6. Attribution & Data Compliance
 
 - **Origin & Team Contribution:** Originated from our team's Zalo AI Challenge 2026 LifeMate repository (`sun0810pi/zalo-challenge`).
-- **Personal Scope (Hà Sỹ Phong):** Designed and tuned the L4 Max `ChunkedLossTrainer` 9,216-token SFT pipelines (`49.30` V6 → `49.60` V7 team-best Public Score), diagnosed and resolved the silent Whisper checkpoint & cache/resume mismatch on Private evaluation (`26.40` → `36.05`, `+9.65` points), engineered the post-competition **V9 Schema-First** safety/compaction/routing architecture, built the reproducible CPU benchmark suite, and designed the minimalist Streamlit product demo.
+- **Personal Scope (Hà Sỹ Phong):** Designed and tuned the L4 Max `ChunkedLossTrainer` 9,216-token SFT pipelines (`49.30` V6 → `49.60` V7 team-best Public Score), diagnosed and resolved the silent Whisper checkpoint & cache/resume mismatch on Private evaluation (`26.40` → `36.05`, `+9.65` points), engineered the post-competition **Schema-First** safety/compaction/routing architecture, built the reproducible CPU benchmark suite, and designed the interactive Streamlit workbench.
 - **Compliance:** Competition datasets (`train/`, `public_test/`, `private_test/`, `.wav` audio, and `.jsonl` submissions) are strictly excluded from this repository.
