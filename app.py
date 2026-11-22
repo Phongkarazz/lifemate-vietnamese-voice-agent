@@ -6,6 +6,7 @@ schema-first execution guardrails, and sandbox trace inspection) inside a clean 
 from __future__ import annotations
 
 import html
+import importlib
 import json
 import sys
 from pathlib import Path
@@ -19,6 +20,10 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+import demo.scenarios as _scenarios_mod  # noqa: E402
+
+importlib.reload(_scenarios_mod)
 
 from demo.scenarios import (  # noqa: E402
     L4_PEAK_CHUNKED_VRAM_GIB,
@@ -333,32 +338,20 @@ div[data-testid="stFormSubmitButton"] button:hover {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 10px;
-    padding: 5px 0;
+    gap: 12px;
+    padding: 6px 0;
     border-bottom: 1px solid var(--border);
-    font-size: 0.82rem;
+    font-size: 0.83rem;
 }
-.lm-kv-row:last-child { border-bottom: none; padding-bottom: 1px; }
+.lm-kv-row:last-child { border-bottom: none; padding-bottom: 2px; }
 .lm-kv-k { color: var(--ink-2); }
-.lm-kv-r {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+.lm-kv-v {
+    font-weight: 600;
+    color: var(--ink);
     text-align: right;
     font-variant-numeric: tabular-nums;
-}
-.lm-kv-v { font-weight: 600; color: var(--ink); }
-.lm-delta {
-    font-size: 0.72rem;
-    font-weight: 500;
-    padding: 1px 7px;
-    border-radius: 4px;
     white-space: nowrap;
 }
-.d-ok { color: var(--ok); background: var(--ok-soft); }
-.d-warn { color: var(--warn); background: var(--warn-soft); }
-.d-err { color: var(--err); background: var(--err-soft); }
-.d-neutral { color: var(--ink-3); background: #ECEFF4; }
 
 /* Vertical Hairline Execution Rail */
 .lm-rail {
@@ -396,7 +389,6 @@ div[data-testid="stFormSubmitButton"] button:hover {
 .lm-rail-head {
     display: flex;
     align-items: baseline;
-    justify-content: space-between;
     gap: 8px;
 }
 .lm-rail-tool {
@@ -404,11 +396,7 @@ div[data-testid="stFormSubmitButton"] button:hover {
     font-size: 0.80rem;
     font-weight: 600;
     color: var(--ink);
-}
-.lm-rail-status {
-    font-size: 0.73rem;
-    font-weight: 600;
-    white-space: nowrap;
+    word-break: break-word;
 }
 .lm-arg-wrap {
     display: flex;
@@ -569,7 +557,7 @@ def _fmt_vnd(amount: int | float) -> str:
 
 def _render_args_chips(args: dict[str, Any]) -> str:
     if not args:
-        return '<div class="lm-arg-wrap"><span class="lm-arg">(không tham số)</span></div>'
+        return ""
     chips = []
     for k, v in args.items():
         val_txt = json.dumps(v, ensure_ascii=False)
@@ -594,7 +582,6 @@ def _plotly_editorial(fig: go.Figure, height: int = 285) -> go.Figure:
     return fig
 
 
-@st.cache_data
 def _cached_v9_evolution() -> list[dict[str, Any]]:
     return get_v9_evolution_rows()
 
@@ -748,14 +735,11 @@ with tab_exp:
         elif active_sid == "conditional_weather_guard":
             st.toggle("Giả lập ngày mai có mưa", key="wb_rain")
 
-        # Live Device State Card
+        # Live Device State Card (Pure 2-Column Label <-> Value)
         state_items_html = "".join(
             f'<div class="lm-kv-row">'
             f'<span class="lm-kv-k">{html.escape(r["label"])}</span>'
-            f'<div class="lm-kv-r">'
             f'<span class="lm-kv-v">{html.escape(r["value"])}</span>'
-            f'<span class="lm-delta d-{r["delta_kind"]}">{html.escape(r["delta"])}</span>'
-            f"</div>"
             f"</div>"
             for r in turn_res["state_rows"]
         )
@@ -768,14 +752,12 @@ with tab_exp:
         rail_items: list[str] = []
         for s in turn_res["steps"]:
             dot_cls = {"ok": "dot-ok", "warn": "dot-warn", "err": "dot-err"}.get(s["status_kind"], "dot-ok")
-            st_color = {"ok": "#059669", "warn": "#D97706", "err": "#DC2626"}.get(s["status_kind"], "#059669")
             args_html = _render_args_chips(s["args"])
             rail_items.append(
                 f'<div class="lm-rail-item">'
                 f'<span class="lm-rail-dot {dot_cls}"></span>'
                 f'<div class="lm-rail-head">'
                 f'<span class="lm-rail-tool">{s["idx"]:02d}. {html.escape(s["tool"])}</span>'
-                f'<span class="lm-rail-status" style="color:{st_color};">{html.escape(s["status_vi"])}</span>'
                 f"</div>"
                 f"{args_html}"
                 f'<div class="lm-rail-note">{html.escape(s["note_vi"])}</div>'
@@ -950,12 +932,14 @@ with tab_tech:
     st.markdown('<div class="lm-sec-head">Đánh giá mở rộng hậu cuộc thi (CPU)</div>', unsafe_allow_html=True)
     evo_rows_html = []
     for er in _cached_v9_evolution():
+        v7_col = str(er.get("Bản nộp thi (V7)") or er.get("LifeMate V7") or "—")
+        sf_col = str(er.get("Kiến trúc Schema-First") or er.get("LifeMate V9") or "—")
         evo_rows_html.append(
             "<tr>"
-            f'<td>{html.escape(er["Hạng mục kiểm thử (Synthetic CPU)"])}</td>'
-            f'<td class="num" style="color:#64748B;">{html.escape(er["LLM Thô"])}</td>'
-            f'<td class="num" style="color:#475569;">{html.escape(er["Bản nộp thi (V7)"])}</td>'
-            f'<td class="num v9col">{html.escape(er["Kiến trúc Schema-First"])}</td>'
+            f'<td>{html.escape(str(er.get("Hạng mục kiểm thử (Synthetic CPU)", "")))}</td>'
+            f'<td class="num" style="color:#64748B;">{html.escape(str(er.get("LLM Thô", "—")))}</td>'
+            f'<td class="num" style="color:#475569;">{html.escape(v7_col)}</td>'
+            f'<td class="num v9col">{html.escape(sf_col)}</td>'
             "</tr>"
         )
     st.markdown(
