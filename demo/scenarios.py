@@ -957,40 +957,37 @@ def _preset_state_rows_vi(res: dict[str, Any], wallet_balance: int) -> list[dict
     if "bills" in st and st["bills"]:
         bill_st = st["bills"][0].get("status", "")
         paid_map = {
-            "unpaid": ("Chưa thanh toán", "warn"),
-            "paid_via_ewallet": ("Đã thanh toán", "ok"),
-            "paid_via_bank": ("Đã thanh toán", "ok"),
+            "unpaid": ("Chưa thanh toán (450.000 đ)", "warn"),
+            "paid_via_ewallet": ("Đã thanh toán (Ví điện tử)", "ok"),
+            "paid_via_bank": ("Đã thanh toán (Ngân hàng)", "ok"),
         }
         val_vi, kind = paid_map.get(bill_st, (bill_st, "neutral"))
-        src_vi = "Qua Ví điện tử" if bill_st == "paid_via_ewallet" else ("Qua Ngân hàng" if bill_st == "paid_via_bank" else "Còn nợ 450.000 đ")
-        rows.append({"label": "Hóa đơn EVN HCMC", "value": val_vi, "delta": src_vi, "delta_kind": kind})
+        rows.append({"label": "Hóa đơn EVN HCMC", "value": val_vi, "delta": "", "delta_kind": kind})
     if "ewallet_balance" in st:
         cur = int(st["ewallet_balance"])
         diff = cur - int(wallet_balance)
-        delta_str = f"{_fmt_vnd_vi(diff)}" if diff < 0 else "Không thay đổi"
-        rows.append({"label": "Số dư Ví điện tử", "value": _fmt_vnd_vi(cur), "delta": delta_str, "delta_kind": "neutral" if diff == 0 else "ok"})
+        rows.append({"label": "Số dư Ví điện tử", "value": _fmt_vnd_vi(cur), "delta": "", "delta_kind": "neutral" if diff == 0 else "ok"})
     if "bank_balance" in st:
         cur_b = int(st["bank_balance"])
         diff_b = cur_b - 5_000_000
-        delta_b = f"{diff_b:,}".replace(",", ".") + " đ" if diff_b < 0 else "Không thay đổi"
-        rows.append({"label": "Tài khoản Ngân hàng", "value": _fmt_vnd_vi(cur_b), "delta": delta_b, "delta_kind": "ok" if diff_b < 0 else "neutral"})
+        rows.append({"label": "Tài khoản Ngân hàng", "value": _fmt_vnd_vi(cur_b), "delta": "", "delta_kind": "ok" if diff_b < 0 else "neutral"})
     if "sent_sms" in st:
         sms_cnt = len(st["sent_sms"])
         rows.append({
             "label": "Tin nhắn xác nhận",
-            "value": f"{sms_cnt} tin đã gửi" if sms_cnt else "0 tin",
-            "delta": "Đã báo Anh Minh" if sms_cnt else "Chưa gửi",
+            "value": f"Đã gửi {sms_cnt} tin (Anh Minh)" if sms_cnt else "Chưa gửi",
+            "delta": "",
             "delta_kind": "err" if (sms_cnt and st.get("bills", [{}])[0].get("status") == "unpaid") else ("ok" if sms_cnt else "neutral"),
         })
     if "food_orders" in st:
         n_ord = len(st["food_orders"])
-        rows.append({"label": "Đơn giao đồ ăn", "value": f"{n_ord} đơn hợp lệ" if n_ord else "Chưa tạo đơn", "delta": "Đã xác thực mã món" if n_ord else "Bị từ chối", "delta_kind": "ok" if n_ord else "err"})
+        rows.append({"label": "Đơn giao đồ ăn", "value": f"{n_ord} đơn hợp lệ" if n_ord else "Chưa tạo đơn", "delta": "", "delta_kind": "ok" if n_ord else "err"})
     if "cart" in st:
         n_cart = len(st["cart"])
-        rows.append({"label": "Giỏ hàng siêu thị", "value": f"{n_cart} sản phẩm" if n_cart else "Trống", "delta": "Đã thêm prod_demo_01" if n_cart else "Lỗi mã sản phẩm", "delta_kind": "ok" if n_cart else "err"})
+        rows.append({"label": "Giỏ hàng siêu thị", "value": f"{n_cart} sản phẩm" if n_cart else "Trống", "delta": "", "delta_kind": "ok" if n_cart else "err"})
     if "reminders" in st:
         n_rem = len(st["reminders"])
-        rows.append({"label": "Nhắc nhở đã tạo", "value": f"{n_rem} nhắc nhở" if n_rem else "0 nhắc nhở", "delta": "Đúng điều kiện thời tiết", "delta_kind": "ok" if res["guardrail_enabled"] else "err"})
+        rows.append({"label": "Nhắc nhở đã tạo", "value": f"{n_rem} nhắc nhở" if n_rem else "0 nhắc nhở", "delta": "", "delta_kind": "ok" if res["guardrail_enabled"] else "err"})
     return rows
 
 
@@ -1222,46 +1219,49 @@ def run_workbench_turn(
                 "tool": read_tool["name"],
                 "args": {},
                 "status_kind": "ok",
-                "status_vi": "Định tuyến & tra cứu",
-                "note_vi": f"Ưu tiên nhóm công cụ '{top_name_vi}' và giảm {nlp['char_savings_pct']}% ngữ cảnh schema.",
+                "status_vi": "",
+                "note_vi": f"Tra cứu dữ liệu thực tế từ nhóm ứng dụng «{top_name_vi}» trước khi thao tác.",
             })
         if write_tool:
             sample_args: dict[str, Any] = {}
+            display_args: dict[str, Any] = {}
             props = (write_tool.get("parameters") or {}).get("properties") or {}
             for pk, pspec in props.items():
                 if pspec.get("x-ref"):
                     sample_args[pk] = "UNVERIFIED_INPUT"
                 elif pk == "amount" and mon_amt is not None:
                     sample_args[pk] = mon_amt
+                    display_args[pk] = mon_amt
                 elif pk == "time" and iso_dt is not None:
                     sample_args[pk] = iso_dt
+                    display_args[pk] = iso_dt
             if guardrail_enabled:
                 pre_err = tracker.check_pre_execution(write_tool["name"], sample_args)
                 if pre_err:
                     custom_steps.append({
                         "idx": len(custom_steps) + 1,
                         "tool": write_tool["name"],
-                        "args": sample_args,
+                        "args": display_args,
                         "status_kind": "warn",
-                        "status_vi": "Bắt buộc tra ID trước",
-                        "note_vi": "Cần tra cứu và lấy đúng mã thực thể hệ thống trước khi thực thi thao tác ghi.",
+                        "status_vi": "",
+                        "note_vi": "Yêu cầu lấy đúng mã thực thể từ bước tra cứu trước khi thực thi thao tác ghi.",
                     })
                 else:
                     custom_steps.append({
                         "idx": len(custom_steps) + 1,
                         "tool": write_tool["name"],
-                        "args": sample_args,
+                        "args": display_args,
                         "status_kind": "ok",
-                        "status_vi": "Sẵn sàng thực thi",
+                        "status_vi": "",
                         "note_vi": "Đã xác thực đầy đủ định dạng và ràng buộc JSON Schema.",
                     })
             else:
                 custom_steps.append({
                     "idx": len(custom_steps) + 1,
                     "tool": write_tool["name"],
-                    "args": sample_args,
+                    "args": display_args,
                     "status_kind": "warn",
-                    "status_vi": "Chạy trực tiếp",
+                    "status_vi": "",
                     "note_vi": "Đang tắt kiểm soát — tham số sẽ đi thẳng tới API.",
                 })
 
@@ -1283,9 +1283,9 @@ def run_workbench_turn(
         }
 
     custom_state_rows = [
-        {"label": "Ứng dụng ưu tiên", "value": top_name_vi, "delta": f"Tiết kiệm {nlp['char_savings_pct']}% prompt", "delta_kind": "ok"},
-        {"label": "Số tiền nhận diện", "value": _fmt_vnd_vi(mon_amt), "delta": "Tách từ tiếng Việt" if mon_amt else "Không có", "delta_kind": "ok" if mon_amt else "neutral"},
-        {"label": "Mốc thời gian", "value": _fmt_iso_vi(iso_dt), "delta": "ISO +07:00" if iso_dt else "Không hẹn giờ", "delta_kind": "ok" if iso_dt else "neutral"},
+        {"label": "Ứng dụng ưu tiên", "value": top_name_vi, "delta": "", "delta_kind": "ok"},
+        {"label": "Số tiền nhận diện", "value": _fmt_vnd_vi(mon_amt), "delta": "", "delta_kind": "ok" if mon_amt else "neutral"},
+        {"label": "Mốc thời gian", "value": _fmt_iso_vi(iso_dt), "delta": "", "delta_kind": "ok" if iso_dt else "neutral"},
     ]
     sim_state = {
         "routed_app": top_app,

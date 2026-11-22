@@ -129,9 +129,12 @@ class TestStreamlitMVPBackend(unittest.TestCase):
                 joined,
             ]
         ).lower()
-        for banned in ("lá chắn v9", "bảo vệ v9", "phân tích trực tiếp v9", ">v9.0<"):
+        for banned in ("lá chắn v9", "bảo vệ v9", "phân tích trực tiếp v9", ">v9.0<", "(không tham số)", "lm-delta", "lm-rail-status"):
             self.assertNotIn(banned, app_src_l)
             self.assertNotIn(banned, sample_outputs)
+
+        for step in pho_res["steps"]:
+            self.assertNotIn("UNVERIFIED_INPUT", str(step.get("args", {})))
 
 
 if __name__ == "__main__":
