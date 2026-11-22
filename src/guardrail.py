@@ -1,6 +1,7 @@
-"""Schema-driven argument normalizer and pre-execution state guardrail.
+"""Schema-driven argument normalizer and pre-execution state guardrail (V9 Schema-First).
 Normalizes argument types/formats/codes against the catalog schema and enforces
-x-ref read-before-write and collection isolation before hitting `ToolEnv`.
+generic x-ref matching, primary/foreign key separation, x-one-of, capacity/temporal
+bounds, and collection isolation before hitting `ToolEnv`.
 """
 from __future__ import annotations
 
@@ -14,6 +15,28 @@ _UNCLOSED_TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*\})\s*$", re.DOTALL)
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 _DATE_PREFIX_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})")
 _TIME_IN_STR_RE = re.compile(r"(\d{2}:\d{2}(?::\d{2})?)")
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_ISO_TZ_RE = re.compile(r"(?:Z|[+-]\d{2}:\d{2})$")
+_HHMM_RE = re.compile(r"(?:^|T|\s)(\d{2}:\d{2})")
+
+_GENERIC_COLLECTION_STEMS = frozenset({"item", "entry", "record", "result", "data"})
+
+
+def _normalize_collection_key(coll_name: str) -> tuple[str, str]:
+    """Normalize `app.collection` into `(app, singular_stem)` for plural/singular x-ref matching."""
+    clean = str(coll_name).replace("[]", "").strip()
+    if "." in clean:
+        app, field = clean.split(".", 1)
+    else:
+        app, field = "", clean
+    f = field.strip().lower()
+    if len(f) > 3 and f.endswith("ies"):
+        f = f[:-3] + "y"
+    elif (len(f) > 4 and f.endswith(("ches", "shes", "xes", "sses", "zes"))) or f in ("statuses", "buses"):
+        f = f[:-2]
+    elif len(f) > 2 and f.endswith("s") and not f.endswith("ss"):
+        f = f[:-1]
+    return app.strip(), f
 
 # Map standard 3-letter airport abbreviations to IATA codes
 _AIRPORT_CODE_FIXES: dict[str, str] = {
@@ -303,8 +326,12 @@ class PureSchemaStateTracker:
 
     def _resolve_read_tool(self, tool_name: str, xref: str | None, param_name: str) -> str:
         """Find the appropriate read tool for an x-ref reference dynamically."""
-        if xref and xref in self.collection_to_read_tool:
-            return self.collection_to_read_tool[xref]
+        if xref:
+            if xref in self.collection_to_read_tool:
+                return self.collection_to_read_tool[xref]
+            for coll, rt in self.collection_to_read_tool.items():
+                if self._collections_match(coll, xref):
+                    return rt
 
         # Look in the same app for a read tool matching the parameter name
         app_name = tool_name.split(".", 1)[0]
@@ -321,26 +348,79 @@ class PureSchemaStateTracker:
 
         return f"tool read của ứng dụng '{app_name}'"
 
-    def _record_entity_dict(self, item: dict[str, Any], coll_name: str) -> None:
-        """Register primary and secondary entity identifiers from an observed object."""
-        found_ids: list[str] = []
-        for id_key in self.ENTITY_ID_KEYS:
-            raw_val = item.get(id_key)
-            if raw_val is not None:
-                id_str = str(raw_val).strip()
-                if id_str and id_str not in found_ids:
-                    found_ids.append(id_str)
+    def _collections_match(self, observed_coll: str, target_xref: str) -> bool:
+        """Match collections within the SAME app across singular/plural or generic keys,
+        while preserving a strict cross-app lock.
+        """
+        if observed_coll == target_xref:
+            return True
+        obs_app, obs_stem = _normalize_collection_key(observed_coll)
+        tgt_app, tgt_stem = _normalize_collection_key(target_xref)
+        if obs_app != tgt_app:
+            return False
+        return obs_stem == tgt_stem or obs_stem in _GENERIC_COLLECTION_STEMS
 
-        if not found_ids:
+    def _known_ids_for_xref(self, xref: str) -> tuple[bool, set[str]]:
+        """Return `(has_matching_collection, union_of_ids)` across all observed collections matching `xref`."""
+        matched_ids: set[str] = set()
+        has_match = False
+        for coll, ids in self.collection_entity_ids.items():
+            if self._collections_match(coll, xref):
+                has_match = True
+                matched_ids.update(ids)
+        return has_match, matched_ids
+
+    def _record_entity_dict(self, item: dict[str, Any], coll_name: str) -> None:
+        """Register primary ID into collection space while isolating foreign keys."""
+        candidate_keys: list[str] = []
+        if "id" in item:
+            candidate_keys.append("id")
+        for k in self.ENTITY_ID_KEYS:
+            if k not in candidate_keys and k in item:
+                candidate_keys.append(k)
+        for k in item.keys():
+            if isinstance(k, str) and k.endswith("_id") and k not in candidate_keys:
+                candidate_keys.append(k)
+
+        key_vals: list[tuple[str, str]] = []
+        seen_vals: set[str] = set()
+        for id_key in candidate_keys:
+            raw_val = item.get(id_key)
+            if raw_val is None or isinstance(raw_val, bool):
+                continue
+            id_str = str(raw_val).strip()
+            if id_str and id_str not in seen_vals:
+                key_vals.append((id_key, id_str))
+                seen_vals.add(id_str)
+
+        if not key_vals:
             return
 
-        primary_id = found_ids[0]
-        for id_str in found_ids:
-            self.all_known_ids.add(id_str)
-            self.all_known_tokens.add(id_str)
-            self.collection_entity_ids.setdefault(coll_name, set()).add(id_str)
-            self.id_to_collections.setdefault(id_str, set()).add(coll_name)
-            self.observed_entities[id_str] = item
+        _, coll_stem = _normalize_collection_key(coll_name)
+        primary_key = key_vals[0][0]
+        if any(k == "id" for k, _ in key_vals):
+            primary_key = "id"
+        elif coll_stem:
+            stem_id_key = f"{coll_stem}_id"
+            if any(k == stem_id_key for k, _ in key_vals):
+                primary_key = stem_id_key
+
+        primary_id = next(val for k, val in key_vals if k == primary_key)
+
+        # Primary ID owns the collection membership and entity object record
+        self.all_known_ids.add(primary_id)
+        self.all_known_tokens.add(primary_id)
+        self.collection_entity_ids.setdefault(coll_name, set()).add(primary_id)
+        self.id_to_collections.setdefault(primary_id, set()).add(coll_name)
+        self.observed_entities[primary_id] = item
+
+        # Foreign keys are known globally but NOT added to this collection's primary ID set
+        for k, fk_val in key_vals:
+            if k == primary_key:
+                continue
+            self.all_known_ids.add(fk_val)
+            self.all_known_tokens.add(fk_val)
+            self.observed_entities.setdefault(fk_val, item)
 
         # Track device types from device objects
         if item.get("type"):
@@ -355,6 +435,20 @@ class PureSchemaStateTracker:
             self.observed_tools.add(tool_name)
         app_name = tool_name.split(".", 1)[0]
 
+        # Record top-level scalar IDs first so nested entity dicts can refine `observed_entities`
+        for key, val in result.items():
+            if key in ("ok", "done", "message", "_hint"):
+                continue
+            if (key == "id" or key.endswith("_id")) and isinstance(val, (str, int)) and not isinstance(val, bool):
+                id_str = str(val).strip()
+                if id_str:
+                    scalar_coll = f"{app_name}.item" if key == "id" else f"{app_name}.{key[:-3]}s"
+                    self.all_known_ids.add(id_str)
+                    self.all_known_tokens.add(id_str)
+                    self.collection_entity_ids.setdefault(scalar_coll, set()).add(id_str)
+                    self.id_to_collections.setdefault(id_str, set()).add(scalar_coll)
+                    self.observed_entities.setdefault(id_str, result)
+
         # Dynamically harvest entity IDs and object properties from list / dict fields
         for key, val in result.items():
             if key in ("ok", "done", "message", "_hint"):
@@ -367,7 +461,7 @@ class PureSchemaStateTracker:
                         self._record_entity_dict(item, coll_name)
             elif isinstance(val, dict):
                 self._record_entity_dict(val, coll_name)
-            elif isinstance(val, (int, float)) and "balance" in key:
+            elif isinstance(val, (int, float)) and not isinstance(val, bool) and "balance" in key:
                 self.balances[f"{app_name}.{key}"] = val
 
         # Track cart additions generically (any app with an add_to_cart tool)
@@ -376,14 +470,58 @@ class PureSchemaStateTracker:
                 self.cart_has_items[app_name] = True
 
     def check_pre_execution(self, tool_name: str, tool_args: dict[str, Any]) -> str | None:
-        """Generic pre-execution check: intercepts preventable soft-failures (done: False)
-        using purely catalog-declared x-ref schemas and live session state.
+        """Generic pre-execution check (V9 Schema-First): intercepts preventable soft-failures
+        using catalog x-ref schemas, x-one-of constraints, temporal/capacity bounds, and session state.
         """
         spec = self.catalog_tools_map.get(tool_name) or {}
         kind = spec.get("kind", "write")
-        props = (spec.get("parameters") or {}).get("properties") or {}
+        params_spec = spec.get("parameters") or {}
+        props = params_spec.get("properties") or {}
 
-        # 1. Schema-driven x-ref and write ID verification
+        # 0. Generic x-one-of constraint pre-check
+        one_of = params_spec.get("x-one-of") or []
+        if isinstance(one_of, list) and one_of:
+            groups = (
+                [one_of]
+                if all(isinstance(x, str) for x in one_of)
+                else [g for g in one_of if isinstance(g, list) and g]
+            )
+            for group in groups:
+                if not any(tool_args.get(gk) not in (None, "", [], {}) for gk in group):
+                    return (
+                        f"Công cụ '{tool_name}' yêu cầu cung cấp ít nhất một trong các tham số "
+                        f"({', '.join(str(gk) for gk in group)}) theo ràng buộc x-one-of."
+                    )
+
+        # 0b. Generic temporal range and ISO-8601 timezone checks
+        check_in = tool_args.get("check_in")
+        check_out = tool_args.get("check_out")
+        if (
+            isinstance(check_in, str)
+            and isinstance(check_out, str)
+            and _ISO_DATE_RE.match(check_in)
+            and _ISO_DATE_RE.match(check_out)
+            and check_in >= check_out
+        ):
+            return f"Khoảng ngày không hợp lệ: check_out ('{check_out}') phải lớn hơn check_in ('{check_in}')."
+
+        start_date = tool_args.get("start_date")
+        end_date = tool_args.get("end_date")
+        if (
+            isinstance(start_date, str)
+            and isinstance(end_date, str)
+            and _ISO_DATE_RE.match(start_date)
+            and _ISO_DATE_RE.match(end_date)
+            and start_date > end_date
+        ):
+            return f"Khoảng ngày không hợp lệ: end_date ('{end_date}') không được nhỏ hơn start_date ('{start_date}')."
+
+        for k, v in tool_args.items():
+            p_fmt = (props.get(k) or {}).get("format")
+            if p_fmt == "date-time" and isinstance(v, str) and "T" in v and not _ISO_TZ_RE.search(v):
+                return f"Tham số thời gian '{k}={v}' thiếu múi giờ ISO-8601 (cần hậu tố '+07:00')."
+
+        # 1. Schema-driven x-ref and write ID verification (with singular/plural & generic stem matching)
         for k, v in tool_args.items():
             if not isinstance(v, str) or not v:
                 continue
@@ -402,16 +540,19 @@ class PureSchemaStateTracker:
                         f"Hãy gọi '{read_tool}' trước để lấy đúng ID thực tế."
                     )
 
-                # Block cross-collection ID leakage (e.g. pantry 'pan_06' passed to grocery 'product_id')
-                if xref and v in self.id_to_collections and xref not in self.id_to_collections[v]:
-                    return (
-                        f"ID '{k}={v}' thuộc danh mục khác ({sorted(self.id_to_collections[v])}), "
-                        f"không thuộc '{xref}'. Hãy gọi '{read_tool}' để lấy đúng ID."
-                    )
+                # Block cross-collection ID leakage while permitting singular/plural equivalence within same app
+                if xref and v in self.id_to_collections:
+                    obs_colls = self.id_to_collections[v]
+                    if not any(self._collections_match(oc, xref) for oc in obs_colls):
+                        return (
+                            f"ID '{k}={v}' thuộc danh mục khác ({sorted(obs_colls)}), "
+                            f"không thuộc '{xref}'. Hãy gọi '{read_tool}' để lấy đúng ID."
+                        )
 
-                # If specific x-ref collection has already been queried, require membership (no word bypass)
-                if xref and xref in self.collection_entity_ids:
-                    if v not in self.collection_entity_ids[xref]:
+                # If matching x-ref collection has already been queried, require membership
+                if xref:
+                    has_coll, matching_ids = self._known_ids_for_xref(xref)
+                    if has_coll and v not in matching_ids:
                         return (
                             f"ID '{k}={v}' chưa có trong kết quả tra cứu danh mục '{xref}'. "
                             f"Hãy kiểm tra lại hoặc gọi '{read_tool}' trước để lấy đúng ID thực tế từ hệ thống."
@@ -475,14 +616,94 @@ class PureSchemaStateTracker:
                         f"(chỉ áp dụng cho thiết bị loại '{expected_type}'). Hãy chọn đúng device_id phù hợp."
                     )
 
-        # 4. Quantitative availability / capacity checks (checks numeric fields from observed objects)
+        # 4. Quantitative availability / capacity / temporal bounds checks on observed entities
         for k, v in tool_args.items():
             if isinstance(v, str) and v in self.observed_entities:
                 obj = self.observed_entities[v]
 
+                # Explicit unavailable entity flag
+                if kind == "write" and obj.get("available") is False:
+                    return f"Đối tượng '{v}' hiện không còn khả dụng (available=False)."
+
                 # Available spots in parking / venues
                 if isinstance(obj.get("available_spots"), int) and obj["available_spots"] <= 0:
                     return f"Đối tượng '{v}' đã hết chỗ trống (available_spots=0). Hãy chọn địa điểm khác còn chỗ."
+
+                # Guest capacity bounds (restaurants, hotels, venues)
+                guests_req = tool_args.get("guests")
+                max_guests = obj.get("max_guests") if isinstance(obj.get("max_guests"), int) else obj.get("max_capacity")
+                if isinstance(guests_req, int) and isinstance(max_guests, int) and guests_req > max_guests:
+                    return (
+                        f"Đối tượng '{v}' chỉ nhận tối đa {max_guests} khách, không thể đặt cho {guests_req} khách."
+                    )
+
+                # Room type validation
+                room_type_req = tool_args.get("room_type")
+                raw_room_types = obj.get("room_types") or obj.get("types")
+                if isinstance(room_type_req, str) and room_type_req.strip() and isinstance(raw_room_types, list) and raw_room_types:
+                    valid_room_types: list[str] = []
+                    unavailable_room_types: set[str] = set()
+                    for rt in raw_room_types:
+                        if isinstance(rt, str) and rt.strip():
+                            valid_room_types.append(rt.strip())
+                        elif isinstance(rt, dict):
+                            rt_name = rt.get("type") or rt.get("name") or rt.get("room_type")
+                            if isinstance(rt_name, str) and rt_name.strip():
+                                valid_room_types.append(rt_name.strip())
+                                if rt.get("available") is False:
+                                    unavailable_room_types.add(rt_name.strip().lower())
+                    req_rt_l = room_type_req.strip().lower()
+                    if valid_room_types and req_rt_l not in {rt.lower() for rt in valid_room_types}:
+                        return (
+                            f"Loại phòng '{room_type_req}' không có tại '{v}'. "
+                            f"Các loại hợp lệ: {', '.join(valid_room_types)}."
+                        )
+                    if req_rt_l in unavailable_room_types:
+                        return f"Loại phòng '{room_type_req}' tại '{v}' hiện đã hết phòng trống."
+
+                # Available slots validation
+                time_req = tool_args.get("time")
+                raw_slots = obj.get("slots") or obj.get("available_slots")
+                if kind == "write" and isinstance(time_req, str) and time_req.strip() and isinstance(raw_slots, list):
+                    str_slots = [str(sl).strip() for sl in raw_slots if isinstance(sl, str) and str(sl).strip()]
+                    if str_slots:
+                        req_s = time_req.strip()
+                        m_req_hhmm = _HHMM_RE.search(req_s)
+                        req_hhmm = m_req_hhmm.group(1) if m_req_hhmm else ""
+                        matched = False
+                        for sl in str_slots:
+                            if re.fullmatch(r"\d{2}:\d{2}", sl):
+                                if sl == req_s or sl == req_hhmm:
+                                    matched = True
+                                    break
+                            elif sl == req_s or (len(sl) >= 10 and req_s.startswith(sl)):
+                                matched = True
+                                break
+                        if not matched:
+                            return (
+                                f"Khung giờ '{req_s}' không nằm trong danh sách giờ trống của '{v}'. "
+                                f"Giờ trống: {', '.join(str_slots)}."
+                            )
+
+                # Operating hours window (open .. close)
+                if kind == "write" and isinstance(time_req, str) and isinstance(obj.get("open"), str) and isinstance(obj.get("close"), str):
+                    open_s = obj["open"].strip()
+                    close_s = obj["close"].strip()
+                    m_hhmm = _HHMM_RE.search(time_req.strip())
+                    if m_hhmm and re.fullmatch(r"\d{2}:\d{2}", open_s) and re.fullmatch(r"\d{2}:\d{2}", close_s):
+                        hhmm = m_hhmm.group(1)
+                        if open_s < close_s and not (open_s <= hhmm <= close_s):
+                            return (
+                                f"Thời gian '{hhmm}' nằm ngoài giờ hoạt động của '{v}' ({open_s} - {close_s})."
+                            )
+
+                # Episode range bounds (video / audio series)
+                ep_req = tool_args.get("episode")
+                max_ep = obj.get("episodes") if isinstance(obj.get("episodes"), int) else obj.get("total_episodes")
+                if isinstance(ep_req, int) and isinstance(max_ep, int) and (ep_req < 1 or ep_req > max_ep):
+                    return (
+                        f"Tập phim episode={ep_req} không hợp lệ cho '{v}' (chỉ có từ 1 đến {max_ep} tập)."
+                    )
 
                 # Status eligibility gates (ended sessions, delivered cancels, ineligible returns/re-actions)
                 raw_status = obj.get("status")

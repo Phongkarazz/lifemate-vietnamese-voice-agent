@@ -106,23 +106,42 @@ class SemanticToolRouter:
                         parts.append(p_info["description"])
             app_docs.append(" ".join(parts))
 
-        # Query includes the user prompt and recent user history text
+        # Query includes the user prompt and recent user history text (`audio_text` or `text`)
+        recent_history = list(sample.get("history") or [])[-4:]
         query_parts = [query]
-        for turn in (sample.get("history") or [])[-2:]:
-            if turn.get("role") == "user" and turn.get("audio_text"):
-                query_parts.append(turn["audio_text"])
+        for turn in recent_history:
+            if turn.get("role") == "user":
+                hist_txt = turn.get("audio_text") or turn.get("text")
+                if hist_txt:
+                    query_parts.append(str(hist_txt))
         full_query = " ".join(query_parts)
+
+        # Lightweight recency boost for apps active in recent assistant turns (helps elliptic follow-ups)
+        asst_turns = [t for t in recent_history if t.get("role") == "assistant" and (t.get("tool_calls") or [])]
+        recency_boost: dict[str, float] = {}
+        for idx_from_oldest, turn in enumerate(asst_turns):
+            weight = 0.12 if idx_from_oldest == len(asst_turns) - 1 else 0.06
+            for tc in turn.get("tool_calls") or []:
+                tname = str(tc.get("name") or "")
+                if "." in tname:
+                    app_id = tname.split(".", 1)[0]
+                    recency_boost[app_id] = max(recency_boost.get(app_id, 0.0), weight)
 
         try:
             if self.vectorizer is not None and cosine_similarity is not None:
                 tfidf_matrix = self.vectorizer.fit_transform(app_docs)
                 q_vec = self.vectorizer.transform([full_query])
-                raw_scores = list(cosine_similarity(q_vec, tfidf_matrix)[0])
+                raw_scores = [float(s) for s in cosine_similarity(q_vec, tfidf_matrix)[0]]
             else:
                 raw_scores = _pure_python_tfidf_scores(app_docs, full_query)
 
-            # Stable descending ranking by score
-            ranked_indices = sorted(range(len(app_names)), key=lambda i: -raw_scores[i])
+            boosted_scores = [
+                sc + recency_boost.get(app_names[i], 0.0)
+                for i, sc in enumerate(raw_scores)
+            ]
+
+            # Stable descending ranking by boosted score
+            ranked_indices = sorted(range(len(app_names)), key=lambda i: -boosted_scores[i])
             ranked_apps = [app_names[i] for i in ranked_indices]
 
             recommended = ranked_apps[: self.top_k_recommended]

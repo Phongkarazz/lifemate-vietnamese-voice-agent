@@ -30,6 +30,12 @@ SCORE_PROGRESSION = [
     {"version": "V7 Final", "date": "2026-11-16", "score": 49.60, "milestone": "+140 ASR variants & fixes"},
 ]
 
+PRIVATE_BENCHMARK_METRICS = {
+    "initial_private": 26.40,
+    "final_private": 36.05,
+    "asr_debug_delta": 9.65,
+}
+
 # Exact observed Colab L4 training/eval metrics from Train_Qwen3_4B_ZAIC2026_V7_L4_Max run
 V7_LOSS_CURVE = [
     {"step": 25, "train_loss": 0.065383, "val_loss": 0.044015},
@@ -570,7 +576,7 @@ def run_sandbox_scenario(
 
 
 def run_fintech_chaos_matrix() -> list[dict[str, Any]]:
-    """Run adversarial stress-test checks contrasting Raw LLM vs V8 Guardrails live."""
+    """Run 7 adversarial stress-test checks contrasting Raw LLM vs V9 Schema-First Guardrails live."""
     tools_map = get_catalog_tools_map()
     rows: list[dict[str, Any]] = []
 
@@ -581,7 +587,7 @@ def run_fintech_chaos_matrix() -> list[dict[str, Any]]:
         "Scenario": "Weather Conditional",
         "Threat": "Premature Regex Cancel",
         "Raw LLM": "Aborts (0 calls)",
-        "V8 Guardrail": "Checks weather first" if blocked_cond else "Failed",
+        "V9 Guardrail": "Checks weather first" if blocked_cond else "Failed",
         "Safe": blocked_cond,
     })
 
@@ -593,7 +599,7 @@ def run_fintech_chaos_matrix() -> list[dict[str, Any]]:
         "Scenario": "Spoken ID ('V21')",
         "Threat": "Read-Before-Write Bypass",
         "Raw LLM": "done=False",
-        "V8 Guardrail": "Forces order_status" if e2 else "Failed",
+        "V9 Guardrail": "Forces order_status" if e2 else "Failed",
         "Safe": e2 is not None,
     })
 
@@ -606,7 +612,7 @@ def run_fintech_chaos_matrix() -> list[dict[str, Any]]:
         "Scenario": "Food Menu Gate",
         "Threat": "place_order < get_menu",
         "Raw LLM": "SOFT_NOOP",
-        "V8 Guardrail": "Forces get_menu" if e3 else "Failed",
+        "V9 Guardrail": "Forces get_menu" if e3 else "Failed",
         "Safe": e3 is not None,
     })
 
@@ -619,7 +625,7 @@ def run_fintech_chaos_matrix() -> list[dict[str, Any]]:
         "Scenario": "Return Status Gate",
         "Threat": "Return 'cancelled' order",
         "Raw LLM": "done=False",
-        "V8 Guardrail": "Blocked status gate" if e4 else "Failed",
+        "V9 Guardrail": "Blocked status gate" if e4 else "Failed",
         "Safe": e4 is not None,
     })
 
@@ -635,11 +641,154 @@ def run_fintech_chaos_matrix() -> list[dict[str, Any]]:
         "Scenario": "Wallet Fallback",
         "Threat": "Underfunded wallet pay",
         "Raw LLM": "Fails payment",
-        "V8 Guardrail": "Auto-routed -> bank" if ok5 else "Failed",
+        "V9 Guardrail": "Auto-routed -> bank" if ok5 else "Failed",
         "Safe": ok5,
     })
 
+    # 6. History Entity Reuse (Singular booking -> Plural bookings + FK isolation)
+    syn_catalog = {
+        **tools_map,
+        "hotels.book": {
+            "name": "hotels.book",
+            "kind": "write",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "hotel_id": {"type": "string", "x-ref": "hotels.hotels"},
+                    "check_in": {"type": "string", "format": "date"},
+                    "check_out": {"type": "string", "format": "date"},
+                },
+            },
+        },
+        "hotels.cancel": {
+            "name": "hotels.cancel",
+            "kind": "write",
+            "parameters": {
+                "type": "object",
+                "properties": {"booking_id": {"type": "string", "x-ref": "hotels.bookings"}},
+                "required": ["booking_id"],
+            },
+        },
+        "restaurant_booking.book": {
+            "name": "restaurant_booking.book",
+            "kind": "write",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "restaurant_id": {"type": "string", "x-ref": "restaurant_booking.restaurants"},
+                    "guests": {"type": "integer"},
+                },
+                "required": ["restaurant_id", "guests"],
+            },
+        },
+    }
+    s6 = {
+        "id": "c6",
+        "context": {"installed_apps": {"hotels": {"tools": ["hotels.book", "hotels.cancel"]}}},
+        "history": [
+            {"role": "user", "audio_text": "Đặt khách sạn mẫu"},
+            {
+                "role": "assistant",
+                "tool_calls": [{"name": "hotels.book", "arguments": {}}],
+                "tool_results": [{"ok": True, "booking": {"id": "bk_901", "hotel_id": "htl_05"}}],
+            },
+        ],
+    }
+    t6 = PureSchemaStateTracker(s6, "Hủy đặt phòng lúc nãy giúp mình", syn_catalog)
+    err_valid_reuse = t6.check_pre_execution("hotels.cancel", {"booking_id": "bk_901"})
+    err_fk_blocked = t6.check_pre_execution("hotels.cancel", {"booking_id": "htl_05"})
+    ok6 = (err_valid_reuse is None) and (err_fk_blocked is not None)
+    rows.append({
+        "Scenario": "History Entity Reuse",
+        "Threat": "Singular/Plural & FK Mixup",
+        "Raw LLM": "May confuse hotel_id",
+        "V9 Guardrail": "Reuses bk_901, blocks FK" if ok6 else "Failed",
+        "Safe": ok6,
+    })
+
+    # 7. Capacity & Inverted Date Range Gate
+    s7 = {
+        "id": "c7",
+        "context": {
+            "installed_apps": {
+                "restaurant_booking": {"tools": ["restaurant_booking.book"]},
+                "hotels": {"tools": ["hotels.book"]},
+            }
+        },
+    }
+    t7 = PureSchemaStateTracker(s7, "Đặt bàn 6 khách và khách sạn lệch ngày", syn_catalog)
+    t7.record_observation("restaurant_booking.search", {}, {"ok": True, "restaurants": [{"id": "res_05", "max_guests": 4}]})
+    t7.record_observation("hotels.search", {}, {"ok": True, "hotels": [{"id": "htl_05", "available": True}]})
+    e7_cap = t7.check_pre_execution("restaurant_booking.book", {"restaurant_id": "res_05", "guests": 6})
+    e7_date = t7.check_pre_execution("hotels.book", {"hotel_id": "htl_05", "check_in": "2026-12-05", "check_out": "2026-12-03"})
+    ok7 = (e7_cap is not None) and (e7_date is not None)
+    rows.append({
+        "Scenario": "Capacity & Date Gate",
+        "Threat": "Over-Capacity / Bad Dates",
+        "Raw LLM": "done=False",
+        "V9 Guardrail": "Blocks guests>max & dates" if ok7 else "Failed",
+        "Safe": ok7,
+    })
+
     return rows
+
+
+def get_v9_evolution_rows() -> list[dict[str, Any]]:
+    """Run synthetic V9 CPU benchmark live and format clean Vietnamese comparison rows."""
+    from scripts.benchmarks.benchmark_v9_suite import run_v9_benchmark_summary
+
+    summary = run_v9_benchmark_summary()
+    ui = summary["unsafe_interception"]
+    fp = summary["false_positive_history_blocks"]
+    cmp = summary["compaction_24_turn"]
+    hw = summary["zero_shot_hotwords"]
+    rt = summary["elliptic_routing"]
+    lt = summary["guardrail_latency"]
+
+    return [
+        {
+            "Hạng mục kiểm thử (Synthetic CPU)": f"Chặn ghi sai nghiệp vụ ({ui['total']} kịch bản)",
+            "LLM Thô": f"{ui['raw_pct']:.1f}%",
+            "LifeMate V7": f"{ui['v7_pct']:.1f}%",
+            "LifeMate V9": f"{ui['v9_pct']:.1f}%",
+        },
+        {
+            "Hạng mục kiểm thử (Synthetic CPU)": f"Chặn oan ID từ hội thoại cũ ({fp['total']} mẫu)",
+            "LLM Thô": "0.0% (không chặn)",
+            "LifeMate V7": f"{fp['v7_fp_pct']:.1f}%",
+            "LifeMate V9": f"{fp['v9_fp_pct']:.1f}%",
+        },
+        {
+            "Hạng mục kiểm thử (Synthetic CPU)": "Nén lịch sử hội thoại 24 lượt (ký tự)",
+            "LLM Thô": f"{cmp['raw_chars']:,} (0%)",
+            "LifeMate V7": f"{cmp['raw_chars']:,} (0%)",
+            "LifeMate V9": f"{cmp['compacted_chars']:,} (-{cmp['savings_pct']:.1f}%)",
+        },
+        {
+            "Hạng mục kiểm thử (Synthetic CPU)": "Bảo toàn Entity ID xuyên suốt 24 lượt",
+            "LLM Thô": "—",
+            "LifeMate V7": "—",
+            "LifeMate V9": f"{cmp['entity_id_retention_pct']:.1f}% ({cmp['retained_ids']}/{cmp['expected_ids']})",
+        },
+        {
+            "Hạng mục kiểm thử (Synthetic CPU)": f"Độ phủ Hotword app mới Zero-Shot ({hw['total_unseen_apps']} app)",
+            "LLM Thô": "0.0%",
+            "LifeMate V7": f"{hw['v7_pct']:.1f}%",
+            "LifeMate V9": f"{hw['v9_pct']:.1f}%",
+        },
+        {
+            "Hạng mục kiểm thử (Synthetic CPU)": f"Định tuyến câu nối tiếp rút gọn ({rt['total']} hội thoại)",
+            "LLM Thô": f"{rt['raw_top1_pct']:.1f}%",
+            "LifeMate V7": f"{rt['raw_top1_pct']:.1f}%",
+            "LifeMate V9": f"{rt['v9_top1_pct']:.1f}%",
+        },
+        {
+            "Hạng mục kiểm thử (Synthetic CPU)": f"Độ trễ CPU Guardrail (p50 / p95 · {int(lt['iterations'])} lượt)",
+            "LLM Thô": "0 ms",
+            "LifeMate V7": "—",
+            "LifeMate V9": f"{lt['p50_ms']:.3f} ms / {lt['p95_ms']:.3f} ms",
+        },
+    ]
 
 
 def analyze_vietnamese_utterance(utterance: str, top_k: int = 4) -> dict[str, Any]:

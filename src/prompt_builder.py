@@ -1,4 +1,4 @@
-"""Prompt builder, app-grounded tool schema serializer, and 14-day calendar helper for ZAC 2026 LifeMate."""
+"""Prompt builder, app-grounded tool schema serializer, history compactor, and 14-day calendar helper."""
 from __future__ import annotations
 
 import json
@@ -16,6 +16,85 @@ WEEKDAYS_VI = [
     "Thứ Bảy",
     "Chủ Nhật",
 ]
+
+_ESSENTIAL_RESULT_KEYS = frozenset({
+    "id",
+    "name",
+    "title",
+    "label",
+    "status",
+    "amount",
+    "price",
+    "balance",
+    "time",
+    "date",
+    "check_in",
+    "check_out",
+    "room",
+    "room_type",
+    "symbol",
+    "ticker",
+    "channel",
+    "city",
+    "specialty",
+    "available",
+    "available_spots",
+    "seats_left",
+    "stock",
+    "max_guests",
+    "episodes",
+    "quantity",
+    "source",
+    "done",
+    "ok",
+    "error",
+    "reason",
+})
+_ESSENTIAL_SUFFIXES = ("_id", "_balance", "_status", "_date", "_time")
+_BULKY_CONTAINER_KEYS = frozenset({"reviews", "amenities", "images", "photos", "comments", "raw_logs", "details"})
+
+
+def compact_tool_result(result: Any, max_list_items: int = 8) -> Any:
+    """Compact bulky tool_result payloads from older dialogue turns while preserving
+    100% of entity IDs, financial figures, dates, and status constraints.
+    """
+    if isinstance(result, dict):
+        out: dict[str, Any] = {}
+        for k, v in result.items():
+            if isinstance(v, dict):
+                comp = compact_tool_result(v, max_list_items=max_list_items)
+                if k not in _BULKY_CONTAINER_KEYS:
+                    out[k] = comp
+            elif isinstance(v, list):
+                if k in _BULKY_CONTAINER_KEYS:
+                    continue
+                if v and any(isinstance(it, dict) for it in v):
+                    comp_list: list[Any] = []
+                    for idx, it in enumerate(v):
+                        if not isinstance(it, dict):
+                            comp_list.append(it)
+                        elif idx < max_list_items:
+                            comp_list.append(compact_tool_result(it, max_list_items=max_list_items))
+                        else:
+                            # Retain minimal ID-preserving stub for tail entities beyond max_list_items
+                            stub = {
+                                ik: iv
+                                for ik, iv in it.items()
+                                if ik == "id"
+                                or (isinstance(ik, str) and ik.endswith("_id"))
+                                or ik in ("symbol", "channel", "status")
+                            }
+                            if stub:
+                                comp_list.append(stub)
+                    out[k] = comp_list
+                else:
+                    out[k] = v[:max_list_items] if len(v) > max_list_items else v
+            elif k in _ESSENTIAL_RESULT_KEYS or (isinstance(k, str) and k.endswith(_ESSENTIAL_SUFFIXES)):
+                out[k] = v
+        return out
+    if isinstance(result, list):
+        return [compact_tool_result(it, max_list_items=max_list_items) for it in result[:max_list_items]]
+    return result
 
 
 def build_calendar_helper(current_time_iso: str) -> str:
@@ -285,11 +364,24 @@ def build_user_context_block(
 def format_history_block(
     history: list[dict[str, Any]],
     history_transcripts: dict[str, str] | None = None,
+    compact_older_than: int | None = None,
 ) -> str:
-    """Format `sample['history']` as a structured read-only log of already-executed turns."""
+    """Format `sample['history']` as a structured read-only log of already-executed turns.
+    Automatically compacts bulky older `tool_results` on long multi-turn conversations while
+    preserving recent turns verbatim and retaining 100% of entity IDs.
+    """
     if not history:
         return "Không có lịch sử trước đó."
     history_transcripts = history_transcripts or {}
+
+    total_user_turns = sum(1 for t in history if t.get("role") == "user")
+    if compact_older_than is None:
+        keep_recent = 2 if total_user_turns > 4 else 0
+    elif compact_older_than <= 0:
+        keep_recent = 0
+    else:
+        keep_recent = compact_older_than
+
     lines: list[str] = []
     turn_idx = 0
     for turn in history:
@@ -302,10 +394,16 @@ def format_history_block(
         elif role == "assistant":
             t_calls = turn.get("tool_calls") or []
             t_results = turn.get("tool_results") or []
+            is_older_turn = keep_recent > 0 and turn_idx <= max(0, total_user_turns - keep_recent)
             for tc, tr in zip(t_calls, t_results):
-                lines.append(
-                    f"  -> Đã gọi tool: {tc['name']}({json.dumps(tc.get('arguments', {}), ensure_ascii=False)}) => Kết quả: {json.dumps(tr, ensure_ascii=False)}"
-                )
+                if is_older_turn:
+                    tr_payload = compact_tool_result(tr)
+                    args_str = json.dumps(tc.get("arguments", {}), ensure_ascii=False, separators=(",", ":"))
+                    res_str = json.dumps(tr_payload, ensure_ascii=False, separators=(",", ":"))
+                else:
+                    args_str = json.dumps(tc.get("arguments", {}), ensure_ascii=False)
+                    res_str = json.dumps(tr, ensure_ascii=False)
+                lines.append(f"  -> Đã gọi tool: {tc['name']}({args_str}) => Kết quả: {res_str}")
             if turn.get("text"):
                 lines.append(f"[Lượt {turn_idx} - Trợ lý]: {turn['text']}")
     return "\n".join(lines)
@@ -319,6 +417,7 @@ def build_initial_messages(
     router: SemanticToolRouter | None = None,
     catalog_apps_map: dict[str, dict[str, Any]] | None = None,
     max_apps: int | None = None,
+    compact_older_than: int | None = None,
 ) -> list[dict[str, str]]:
     """Build the initial ChatML message list with unified app-grounded tool schemas."""
     context_block = build_user_context_block(
@@ -329,7 +428,11 @@ def build_initial_messages(
         catalog_apps_map=catalog_apps_map,
         max_apps=max_apps,
     )
-    history_block = format_history_block(sample.get("history") or [], history_transcripts)
+    history_block = format_history_block(
+        sample.get("history") or [],
+        history_transcripts,
+        compact_older_than=compact_older_than,
+    )
     user_prompt = (
         f"### LỊCH SỬ HỘI THOẠI TRƯỚC ĐÓ (ĐÃ THỰC HIỆN XONG TRONG STATE)\n"
         f"{history_block}\n\n"

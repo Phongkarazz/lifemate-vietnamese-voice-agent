@@ -127,42 +127,110 @@ def clean_asr_transcript(text: str, installed_apps: dict[str, Any] | None = None
     return cleaned
 
 
-def build_asr_hotwords_prompt(sample: dict[str, Any]) -> str:
-    """Build a Vietnamese initial_prompt with proper nouns from context/history and installed app keywords."""
+def _append_unique_ci(target: list[str], seen_lower: set[str], raw_val: Any, max_len: int = 48) -> None:
+    """Append string value preserving first-seen case if not empty and not already present."""
+    if not raw_val or isinstance(raw_val, bool):
+        return
+    s = re.sub(r"\s+", " ", str(raw_val)).strip(" ,;.")
+    if not s or len(s) > max_len:
+        return
+    low = s.lower()
+    if low not in seen_lower:
+        seen_lower.add(low)
+        target.append(s)
+
+
+def _is_readable_hotword_enum(val: Any) -> bool:
+    """Keep human-readable domain enums / short uppercase codes while filtering snake_case IDs."""
+    if not isinstance(val, str):
+        return False
+    s = val.strip()
+    if not s or len(s) > 32:
+        return False
+    if "_" in s:
+        return s.replace("_", "").isupper() and len(s) <= 8
+    return True
+
+
+def build_asr_hotwords_prompt(
+    sample: dict[str, Any],
+    catalog_apps_map: dict[str, dict[str, Any]] | None = None,
+    catalog_tools_map: dict[str, dict[str, Any]] | None = None,
+) -> str:
+    """Build a Vietnamese initial_prompt with proper nouns from context/history and
+    catalog-driven domain hotwords (supporting unseen apps zero-shot).
+    """
     ctx = sample.get("context") or {}
     profile = ctx.get("user_profile") or {}
     installed_apps = ctx.get("installed_apps") or {}
     terms: list[str] = []
+    seen_terms: set[str] = set()
 
     for k in ("name", "city", "home_address", "work_address"):
-        val = profile.get(k)
-        if val and str(val) not in terms:
-            terms.append(str(val))
+        _append_unique_ci(terms, seen_terms, profile.get(k))
 
-    # Extract entity names/titles mentioned in history assistant text or tool_results
+    # Extract entity names/titles mentioned in history list OR single-dict tool_results
+    entity_keys = ("name", "title", "label", "room", "symbol", "channel", "stop", "route", "hotel_name", "clinic")
     for turn in sample.get("history") or []:
         for tr in turn.get("tool_results") or []:
-            if isinstance(tr, dict):
-                for val in tr.values():
-                    if isinstance(val, list):
-                        for item in val:
-                            if isinstance(item, dict):
-                                for name_k in ("name", "title", "label", "room", "symbol", "channel", "stop", "route"):
-                                    if item.get(name_k) and str(item[name_k]) not in terms:
-                                        terms.append(str(item[name_k]))
+            if not isinstance(tr, dict):
+                continue
+            for val in tr.values():
+                items = val if isinstance(val, list) else ([val] if isinstance(val, dict) else [])
+                for item in items:
+                    if isinstance(item, dict):
+                        for name_k in entity_keys:
+                            _append_unique_ci(terms, seen_terms, item.get(name_k))
 
-    # Add concise domain vocabulary from installed apps
+    # Build zero-shot catalog-driven domain vocabulary + fallback APP_DOMAIN_HOTWORDS
     domain_words: list[str] = []
-    for app_name in installed_apps:
+    seen_domain: set[str] = set()
+    catalog_apps_map = catalog_apps_map or {}
+    catalog_tools_map = catalog_tools_map or {}
+
+    for app_name, app_cfg in installed_apps.items():
+        if app_name == "sys":
+            continue
+        meta = catalog_apps_map.get(app_name) or {}
+        if meta.get("name_vi"):
+            _append_unique_ci(domain_words, seen_domain, meta["name_vi"])
+        desc = meta.get("description") or ""
+        if isinstance(desc, str) and desc.strip():
+            for clause in re.split(r"[,;.]", desc):
+                clause_clean = re.sub(r"\s+", " ", clause).strip()
+                if clause_clean and len(clause_clean.split()) <= 5:
+                    _append_unique_ci(domain_words, seen_domain, clause_clean)
+
+        # Harvest readable enum values from app tool specs
+        tool_entries: list[dict[str, Any]] = []
+        raw_app_tools = (app_cfg or {}).get("tools") if isinstance(app_cfg, dict) else []
+        for t in raw_app_tools or []:
+            if isinstance(t, str) and t in catalog_tools_map:
+                tool_entries.append(catalog_tools_map[t])
+            elif isinstance(t, dict):
+                tool_entries.append(t)
+        if not tool_entries and isinstance(meta.get("tools"), list):
+            for t in meta["tools"]:
+                if isinstance(t, dict):
+                    tool_entries.append(t)
+                elif isinstance(t, str) and t in catalog_tools_map:
+                    tool_entries.append(catalog_tools_map[t])
+
+        for tspec in tool_entries:
+            props = (tspec.get("parameters") or {}).get("properties") or {}
+            for p_info in props.values():
+                for enum_val in p_info.get("enum") or []:
+                    if _is_readable_hotword_enum(enum_val):
+                        _append_unique_ci(domain_words, seen_domain, enum_val)
+
         for kw in APP_DOMAIN_HOTWORDS.get(app_name, [])[:3]:
-            if kw not in domain_words:
-                domain_words.append(kw)
+            _append_unique_ci(domain_words, seen_domain, kw)
 
     parts = ["Trợ lý ảo tiếng Việt LifeMate."]
     if terms:
         parts.append(f"Tên riêng: {', '.join(terms[:20])}.")
     if domain_words:
-        parts.append(f"Từ khóa: {', '.join(domain_words[:20])}.")
+        parts.append(f"Từ khóa: {', '.join(domain_words[:24])}.")
     return " ".join(parts)
 
 
@@ -476,10 +544,16 @@ class Transcriber:
         self,
         sample: dict[str, Any],
         split_dir: Path,
+        catalog_apps_map: dict[str, dict[str, Any]] | None = None,
+        catalog_tools_map: dict[str, dict[str, Any]] | None = None,
     ) -> tuple[str, dict[str, str]]:
         """Return `(final_user_text, {history_audio_rel_path: transcript})` for a sample."""
         history_transcripts: dict[str, str] = {}
-        hotword_prompt = build_asr_hotwords_prompt(sample)
+        hotword_prompt = build_asr_hotwords_prompt(
+            sample,
+            catalog_apps_map=catalog_apps_map,
+            catalog_tools_map=catalog_tools_map,
+        )
         installed_apps = (sample.get("context") or {}).get("installed_apps") or {}
 
         # 1. History user turns
