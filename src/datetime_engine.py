@@ -39,7 +39,9 @@ _SPOKEN_HOURS = {
 }
 _SPOKEN_HOUR_ALT = "|".join(re.escape(k) for k in _SPOKEN_HOURS)
 _DIGIT_TIME_RE = re.compile(r"(\d{1,2})\s*(?:(h|giờ|:)\s*(\d{1,2}|rưỡi)?|rưỡi\b)")
-_SPOKEN_TIME_RE = re.compile(rf"\b({_SPOKEN_HOUR_ALT})\s+giờ(?:\s+(rưỡi|\d{{1,2}}))?\b")
+_SPOKEN_TIME_RE = re.compile(
+    rf"\b({_SPOKEN_HOUR_ALT})(?:\s+giờ(?:\s+(rưỡi|\d{{1,2}}))?|\s+(rưỡi)\b(?!\s*(?:triệu|nghìn|ngàn|tỷ|đồng|đ\b|kg|ký|lít|km|tô|bát|ly|hộp|tiếng|phút)))"
+)
 
 
 class VietnameseRelativeDateTimeEngine:
@@ -122,7 +124,7 @@ class VietnameseRelativeDateTimeEngine:
             spoken_m = _SPOKEN_TIME_RE.search(t)
             if spoken_m:
                 h = _SPOKEN_HOURS.get(spoken_m.group(1))
-                min_tok = spoken_m.group(2)
+                min_tok = spoken_m.group(2) or spoken_m.group(3)
                 if min_tok == "rưỡi":
                     m = 30
                 elif min_tok:

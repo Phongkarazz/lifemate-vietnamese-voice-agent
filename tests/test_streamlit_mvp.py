@@ -80,16 +80,34 @@ class TestStreamlitMVPBackend(unittest.TestCase):
         self.assertEqual(off_res["receipt_card"]["kind"], "err")
         self.assertGreater(len(on_res["steps"]), 0)
 
-        # 2. Custom Vietnamese utterance flows end-to-end
+        # 2. Custom Vietnamese utterance flows end-to-end (anchored deterministic check)
         custom_res = run_workbench_turn(
             "Chuyển hai triệu năm trăm nghìn cho chị Lan lúc 8 giờ rưỡi tối mai nhé",
             guardrail_enabled=True,
+            current_time_iso="2026-11-17T09:00:00+07:00",
         )
         self.assertEqual(custom_res["mode"], "custom")
         self.assertIn(custom_res["nlp"]["recommended_apps"][0], ("ewallet", "banking"))
         self.assertEqual(custom_res["nlp"]["monetary_amount"], 2500000)
         self.assertEqual(custom_res["nlp"]["resolved_iso"], "2026-11-18T20:30:00+07:00")
         self.assertGreaterEqual(len(custom_res["steps"]), 1)
+
+        # 2b. Spoken half-hour without 'giờ' ('sáu rưỡi ngày mai') + user phở order
+        pho_res = run_workbench_turn(
+            "Đặt cho mình 1 tô phở tái nạm ở quán Phở Thìn Sài Gòn nhé, giá 20000, sáu rưỡi ngày mai",
+            guardrail_enabled=True,
+            current_time_iso="2026-11-22T14:28:00+07:00",
+        )
+        self.assertEqual(pho_res["nlp"]["recommended_apps"][0], "food_delivery")
+        self.assertEqual(pho_res["nlp"]["monetary_amount"], 20000)
+        self.assertEqual(pho_res["nlp"]["resolved_iso"], "2026-11-23T06:30:00+07:00")
+
+        # 2c. Default live Vietnam wall-clock resolves 'ngày mai' relative to real today (UTC+7)
+        from datetime import datetime, timedelta, timezone
+
+        expected_tomorrow = (datetime.now(timezone(timedelta(hours=7))).date() + timedelta(days=1)).strftime("%Y-%m-%d")
+        live_res = run_workbench_turn("Đặt lịch họp sáu rưỡi ngày mai", guardrail_enabled=True)
+        self.assertEqual(live_res["nlp"]["resolved_iso"], f"{expected_tomorrow}T06:30:00+07:00")
 
         # 3. Clean Vietnamese audit suite passes 7/7 with zero English dev jargon
         audit = run_audit_suite_vi()

@@ -102,13 +102,14 @@ header[data-testid="stHeader"] {
     height: 0 !important;
 }
 
-/* Hide raw unformatted Streamlit slider thumb/tick labels (we render clean VND label above) */
+/* Hide raw unformatted Streamlit slider thumb/tick labels & form Enter hint overlap */
 [data-testid="stThumbValue"],
 [data-testid="stSliderThumbValue"],
 [data-testid="stTickBarMin"],
 [data-testid="stTickBarMax"],
 [data-testid="stSliderTickBarMin"],
-[data-testid="stSliderTickBarMax"] {
+[data-testid="stSliderTickBarMax"],
+[data-testid="InputInstructions"] {
     display: none !important;
 }
 
